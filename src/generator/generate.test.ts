@@ -204,6 +204,38 @@ describe('hook output', () => {
     expect(r.settings.hooks).toBeUndefined();
   });
 
+  it('is omitted when turned off, and each item says what the rules alone miss', () => {
+    const off = run(['local.git-discard', 'secrets.ssh-keys', 'remote.mcp-tools'], { ...mac, hook: false }, { mcpTools: ['gmail'] });
+    expect(off.hook).toBeUndefined();
+    expect(off.settings.hooks).toBeUndefined();
+    expect(off.warnings.some((w) => w.includes('hook'))).toBe(false);
+    // The rules themselves are unchanged.
+    const on = run(['local.git-discard', 'secrets.ssh-keys', 'remote.mcp-tools'], mac, { mcpTools: ['gmail'] });
+    expect(off.settings.permissions).toEqual(on.settings.permissions);
+
+    const [discard, ssh, mcp] = off.items;
+    expect(discard!.hookOnly).toContain('git -C . reset --hard');
+    expect(discard!.gaps[0]).toContain('`git -C . reset --hard`');
+    expect(discard!.gaps[0]).toContain('The hook stops these');
+    expect(ssh!.hookOnly).toEqual(['base64 $HOME/.ssh/id_ed25519']);
+    // Nothing for the hook to add on an MCP rule, so no extra line.
+    expect(mcp!.hookOnly).toEqual([]);
+    expect(mcp!.gaps.some((g) => g.includes('The hook stops these'))).toBe(false);
+    // With the hook on, the examples are still reported but not listed as gaps.
+    expect(on.items[0]!.hookOnly).toEqual(discard!.hookOnly);
+    expect(on.items[0]!.gaps.some((g) => g.includes('The hook stops these'))).toBe(false);
+  });
+
+  it('only gives hook examples for the shells in use', () => {
+    const bash = run(['local.recursive-delete'], { ...mac, hook: false }).items[0]!;
+    expect(bash.hookOnly.some((c) => c.startsWith('Remove-Item'))).toBe(false);
+    const ps = run(['local.recursive-delete'], { os: 'windows', shells: ['powershell'], scope: 'project', sandbox: 'off', hook: false });
+    expect(ps.items[0]!.hookOnly.every((c) => c.startsWith('Remove-Item'))).toBe(true);
+    // PowerShell-only with no hook: this item has nothing left to emit, and says so.
+    expect(ps.items[0]!.skipped).toContain('only through the hook');
+    expect(ps.warnings.some((w) => w.includes('Recursive delete'))).toBe(true);
+  });
+
   it('registers the script without a shell in project settings', () => {
     const r = run(['local.git-discard']);
     expect(r.settings.hooks).toEqual({

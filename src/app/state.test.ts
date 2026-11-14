@@ -68,7 +68,20 @@ describe('page state', () => {
     const r = generate({ env: s.env, selections: toSelections(s.selected), inputs: toInputValues(s.inputs) });
     expect(r.items.filter((i) => i.skipped)).toEqual([]);
     expect(r.settings.permissions.deny!.length).toBeGreaterThan(20);
-    expect(r.hook).toBeDefined();
+    // The page starts in rules-only mode.
+    expect(s.env.hook).toBe(false);
+    expect(r.hook).toBeUndefined();
+    expect(r.items.some((i) => i.hookOnly.length > 0)).toBe(true);
+    s.env.hook = true;
+    expect(generate({ env: s.env, selections: toSelections(s.selected), inputs: toInputValues(s.inputs) }).hook).toBeDefined();
+  });
+
+  it('keeps rules-only for state saved before the choice existed', () => {
+    const storage = memoryStorage();
+    storage.data.set('deny-rule-builder:v1', JSON.stringify({ env: { os: 'linux', shells: ['bash'], scope: 'user', sandbox: 'on' } }));
+    const loaded = loadState(storage, initialState('linux'));
+    expect(loaded.env.hook).toBe(false);
+    expect(loaded.env.scope).toBe('user');
   });
 
   it('round-trips through storage and drops what it does not recognise', () => {

@@ -24,7 +24,8 @@ export function guessOs(platform: string): Os {
 
 export function initialState(os: Os): AppState {
   const state: AppState = {
-    env: { os, shells: defaultShells(os), scope: 'project', sandbox: 'off', hookFailClosed: true },
+    // Rules only by default: pasting JSON is the simpler install. The hook is opt-in.
+    env: { os, shells: defaultShells(os), scope: 'project', sandbox: 'off', hook: false, hookFailClosed: true },
     selected: {},
     inputs: {},
   };
