@@ -150,8 +150,32 @@ describe('command rules', () => {
     expect(bash('echo x > package-lock.json', ids, inputs).ruleDecision).toBe('deny');
     expect(bash('echo x | tee package-lock.json', ids, inputs).ruleDecision).toBe('deny');
     expect(bash('cat package-lock.json', ids, inputs).ruleDecision).toBe('allow');
+    // Seen refused in a live session (v2.1.215), beyond the commands the docs name.
+    for (const c of ['base64 .env', 'grep KEY .env', 'awk 1 .env']) expect(bash(c, ids, inputs).ruleDecision, c).toBe('deny');
+    for (const input of ['Get-Content .env', 'gc .env', 'type .env', 'Select-String KEY .env']) {
+      expect(run(ids, { tool: 'PowerShell', input }, inputs, { win: true, env: { hook: false } }).ruleDecision, input).toBe('deny');
+    }
+    // The first argument of grep is the pattern, not a file.
+    expect(bash('grep .env README.md', ids, inputs).ruleDecision).toBe('allow');
     // Programs Claude Code does not recognise as file commands are not held to path rules.
-    expect(bash('base64 .env', ids, inputs).ruleDecision).toBe('allow');
+    expect(bash('xxd .env', ids, inputs).ruleDecision).toBe('allow');
+    // A shell write is held to Edit rules only: a Read rule does not stop it (live, v2.1.325).
+    // That is why a secret path gets an Edit rule as well, and it is that rule which answers here.
+    for (const c of ['echo x > .env', 'echo x | tee -a .env']) {
+      expect(bash(c, ids, inputs).ruleHits.map((h) => h.rule), c).toEqual(['Edit(.env)']);
+    }
+    for (const input of ["'x' > .env", 'Set-Content .env x', 'Add-Content .env x', 'Copy-Item .env copy.txt']) {
+      expect(run(ids, { tool: 'PowerShell', input }, inputs, { win: true, env: { hook: false } }).ruleHits.map((h) => h.rule), input).toEqual(['Edit(.env)']);
+    }
+    // The carve-out holds for writes too.
+    expect(bash('echo x >> .env.example', ids, inputs).ruleDecision).toBe('allow');
+    expect(bash('sed -i s/a/b/ .env', ids, inputs).ruleDecision).toBe('deny');
+    expect(bash('sed -i s/a/b/ package-lock.json', ids, inputs).ruleDecision).toBe('deny');
+    // The Edit tool itself is still stopped by a Read rule.
+    expect(run(ids, { tool: 'Edit', input: '.env' }, inputs).ruleDecision).toBe('deny');
+    // Copying out of a denied file is refused from v2.1.325.
+    expect(bash('cp .env copy.txt', ids, inputs).ruleDecision).toBe('deny');
+    expect(bash('cp notes.txt .env', ids, inputs).ruleDecision).toBe('allow');
     expect(bash('grep -r KEY .', ids, inputs).ruleDecision).toBe('allow');
     expect(bash('echo done 2>&1 > /dev/null', ids, inputs).ruleDecision).toBe('allow');
   });

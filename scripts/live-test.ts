@@ -81,6 +81,10 @@ const readers: Call[] = [
   { tool: 'Bash', input: 'echo x | tee -a .env' },
   { tool: 'Bash', input: 'sed -i s/a/b/ .env' },
   { tool: 'Bash', input: 'echo x > .env' },
+  // The carve-out must hold for writes as well as reads.
+  { tool: 'Bash', input: 'echo x >> .env.example' },
+  // An Edit rule rather than a Read rule: the self-protection item denies edits under .claude/hooks.
+  { tool: 'Bash', input: 'echo x > .claude/hooks/probe.txt' },
 ];
 if (win) {
   readers.splice(
@@ -89,7 +93,7 @@ if (win) {
     { tool: 'PowerShell', input: 'cat .env' },
     { tool: 'PowerShell', input: 'gc .env' },
     { tool: 'PowerShell', input: 'type .env' },
-    { tool: 'PowerShell', input: 'Get-Content -Path .\.env' },
+    { tool: 'PowerShell', input: 'Get-Content -Path .\\.env' },
     { tool: 'PowerShell', input: 'Get-Content .env.example' },
     { tool: 'PowerShell', input: 'Select-String FAKE .env' },
     { tool: 'PowerShell', input: "[IO.File]::ReadAllText((Resolve-Path '.env'))" },
@@ -236,11 +240,15 @@ function observe(c: Call): { decision: string; by: string; detail: string } {
 }
 
 function classify(u: Use): { decision: string; by: string; detail: string } {
-  const text = (u.result ?? '').replace(/\s+/g, ' ').slice(0, 160);
+  const full = (u.result ?? '').replace(/\s+/g, ' ').trim();
+  // Keep the start and the end: the path in the middle is long and says nothing.
+  const detail = full.length > 170 ? `${full.slice(0, 80)} ... ${full.slice(-80)}` : full;
   if (!u.isError) return { decision: 'allow', by: '', detail: '' };
-  if (/hook/i.test(text)) return { decision: /deny-guard|blocked/i.test(text) ? 'deny' : 'refused', by: 'hook', detail: text };
-  if (/permission|denied|requires approval|haven't granted|was blocked/i.test(text)) return { decision: 'refused', by: 'rule', detail: text };
-  return { decision: 'ran, failed', by: '', detail: text };
+  // A hook "deny" is reported as a hook error. A hook "ask" with nobody to answer
+  // comes back as just the hook's reason: `[Item title] why. in: the command`.
+  if (/^PreToolUse:\w+ hook/.test(full) ||/^\[[^\]]+\] .* in: /.test(full)) return { decision: 'refused', by: 'hook', detail };
+  if (/permission|denied|requires approval|haven't granted|was blocked/i.test(full)) return { decision: 'refused', by: 'rule', detail };
+  return { decision: 'ran, failed', by: '', detail };
 }
 
 let mismatches = 0;
@@ -249,9 +257,13 @@ const rows = cases.map((c, i) => {
   const got = observe(c);
   // Without a person to answer, an "ask" is refused, so both count as stopped.
   const wantStopped = want.decision !== 'allow';
-  const gotStopped = got.decision === 'deny' || got.decision === 'refused';
+  const gotStopped = got.decision === 'refused';
   const attempted = got.decision !== 'not attempted';
-  const ok = attempted && wantStopped === gotStopped && (!wantStopped || !want.by || !got.by || want.by === got.by);
+  // The hook runs before the rules for shell commands, so with the hook on it
+  // may answer first for something the rules would also stop. The reverse is
+  // a real difference: something only the hook should stop, stopped by a rule.
+  const byOk = !wantStopped || want.by === got.by || (withHook && want.by === 'rule' && got.by === 'hook');
+  const ok = attempted && wantStopped === gotStopped && byOk;
   if (!ok) mismatches++;
   return { ok, c, want, got };
 });

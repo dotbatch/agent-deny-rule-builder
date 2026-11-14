@@ -212,19 +212,26 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
     });
 
   const pathRule = (rule: PathRule): Emitted[] => {
-    const tool = rule.access === 'read' ? 'Read' : 'Edit';
-    const out: Emitted[] = resolveSpecs(rule.paths).map((p) => ({
-      rule: `${tool}(${permissionPath(p, env.scope)})`,
-      early: !!rule.exceptInput,
-    }));
-    if (rule.exceptInput && out.length > 0) {
+    // A Read rule stops the Read, Edit and Write tools, but not a shell command
+    // writing the file (`echo x > .env`): live runs show only an Edit rule stops
+    // that. So a `read` path gets both, and the file can be neither read nor destroyed.
+    const tools = rule.access === 'read' ? ['Read', 'Edit'] : ['Edit'];
+    const specs = resolveSpecs(rule.paths);
+    const excepts: string[] = [];
+    if (rule.exceptInput && specs.length > 0) {
       for (const name of list(rule.exceptInput)) {
         if (/[\\/]/.test(name) || name.startsWith('!')) {
           warn(`Exception "${name}" must be a bare file name. Skipped.`);
           continue;
         }
-        out.push({ rule: `${tool}(!${name})`, early: true });
+        excepts.push(name);
       }
+    }
+    // Each tool's block keeps its carve-outs right after its own paths.
+    const out: Emitted[] = [];
+    for (const tool of tools) {
+      for (const p of specs) out.push({ rule: `${tool}(${permissionPath(p, env.scope)})`, early: !!rule.exceptInput });
+      for (const name of excepts) out.push({ rule: `${tool}(!${name})`, early: true });
     }
     return out;
   };

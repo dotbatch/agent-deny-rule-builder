@@ -275,9 +275,26 @@ Status: setting names verified against the docs. Live testing not done; see the 
 - **Version requirements.** `"onFailure": "block"` on hooks needs v2.1.295+. Input-redirect checks need v2.1.257+. The CLI on this machine is v2.1.215, so the output must state a minimum version and the hook must still be safe without `onFailure` (on older versions a crashed hook lets the call through).
 - A hook's `if` field takes one permission-rule pattern and is best-effort. Use it only to avoid running the script on every call, never as the check itself.
 
-### Not done: live testing
+### Live testing (run 2026-11-14, Claude Code v2.1.215 and v2.1.325, native Windows)
 
-A throwaway project with fake secrets and two deny rules was set up, but the `claude` CLI on this machine returned `401 OAuth access token has expired`, so no rule was exercised in a real session. macOS cannot be tested from this machine at all. The test matrix to run once the CLI is signed in:
+`scripts/live-test.ts` builds a throwaway project with the Essentials preset, asks `claude -p` to make each tool call once, and compares the outcome with the simulator. Three runs on each version: rules only, a probe of file commands, and rules plus hook. macOS, Linux and the sandbox are still untested.
+
+**On v2.1.325 the core set matches the simulator 23 of 23 in both modes.** The points below are from v2.1.215 unless a version is named.
+
+All seven rows of the matrix below behaved as expected, in both modes. Beyond the matrix:
+
+- **Matches the simulator:** `Read` and `Edit` tools on a denied file; `cat`, `tail`, `sed -n` on it, including `./.env` and inside `echo hi && ...`; force push in both spellings; `git reset --hard`; `--no-verify`; `printenv`; the `!` carve-out for `.env.example`; an `ask` rule on `git push * main`; editing `.claude/settings.json`.
+- **Blocked by Claude Code though the simulator said allowed (now fixed in the simulator):** `grep`, `awk` and `base64` on a Read-denied file, and in PowerShell `Get-Content` (with `cat`, `gc`, `type`) and `Select-String`. `Resolve-Path` was refused too. `Copy-Item`, `source` and `node -e` were not. `cp .env copy.txt` got through on v2.1.215 and is refused on v2.1.325.
+- **Allowed by Claude Code though the simulator said blocked (now fixed in the simulator):** shell writes to a file that only a `Read(...)` rule covers. `echo x > .env`, `echo x | tee -a .env` and PowerShell `'x' > .env` run on both versions; PowerShell `Set-Content` and `Add-Content` too. A shell write into a path with an `Edit(...)` rule is refused (`echo x > .claude/hooks/probe.txt`, v2.1.325). So a Read rule stops the Edit tool but not a shell write; only an Edit rule stops that. `sed -i` on a Read-denied file is refused on v2.1.325 (it reads the file) and was not on v2.1.215.
+- **`cat < .env`** gets through on v2.1.215 and is refused on v2.1.325, as the docs say (needs v2.1.257).
+- **Hook:** loads through the exec form with `${CLAUDE_PROJECT_DIR}` on Windows, runs before the permission rules for shell commands, and its message reaches Claude. `"onFailure": "block"` is accepted by v2.1.215 without complaint. A hook `ask` with nobody to answer (`-p`) is refused and shows the hook's reason.
+- **Rule count:** 240-odd rules in one settings file loaded with no visible slowdown.
+
+What this means for the catalog: the secrets items write `Read(...)` rules only, so their rules do not stop a shell command overwriting a secret file (`echo x > .env`). The contents cannot be read that way, but the file can be destroyed. Adding a matching `Edit(...)` rule for each secret path would close this; it has not been done because it doubles those rules and is the owner's call.
+
+The simulator models the current CLI. On a CLI older than v2.1.257 it overstates what the rules stop for `cat < file`, `cp` and `sed -i`.
+
+The matrix:
 
 | Attempt | Expected with `Read(.env)` and `Bash(git push *)` denied |
 | :- | :- |

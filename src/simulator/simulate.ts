@@ -177,13 +177,21 @@ function matchPathSpec(guard: GuardApi, spec: string, abs: string, p: Paths): 'f
   return hit && whole ? 'dir' : hit;
 }
 
-function pathHits(guard: GuardApi, abs: string, access: 'read' | 'edit', rules: GeneratedRule[], p: Paths, via?: string): RuleHit[] {
+/**
+ * `edit` is the Edit or Write tool, which a Read rule also blocks. `shellWrite`
+ * is a shell command writing the file (`> file`, `tee file`): live runs on
+ * v2.1.215 and v2.1.325 show only Edit rules apply to it, not Read rules.
+ */
+type Access = 'read' | 'edit' | 'shellWrite';
+
+function pathHits(guard: GuardApi, abs: string, access: Access, rules: GeneratedRule[], p: Paths, via?: string): RuleHit[] {
   const out: RuleHit[] = [];
   // A `!` carve-out only reaches rules in the same list, so walk each mode's list on its own.
   for (const mode of ['deny', 'ask'] as const) {
     for (const tool of ['Read', 'Edit'] as const) {
       // A Read rule also blocks Edit and Write on the path; an Edit rule only blocks edits.
       if (tool === 'Edit' && access === 'read') continue;
+      if (tool === 'Read' && access === 'shellWrite') continue;
       const live: { hit: RuleHit; kind: 'file' | 'dir'; relative: boolean }[] = [];
       for (const r of rules) {
         if (r.mode !== mode) continue;
@@ -216,8 +224,23 @@ function pathHits(guard: GuardApi, abs: string, access: 'read' | 'edit', rules: 
 /** Wrappers Claude Code strips before matching a Bash rule. */
 const RULE_WRAPPERS = new Set(['timeout', 'time', 'nice', 'nohup', 'stdbuf', 'command', 'builtin', 'noglob']);
 const CONTROL_WORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
-/** File commands Claude Code recognises in Bash and holds to Read and Edit rules. */
-const FILE_READERS = new Set(['cat', 'head', 'tail', 'sed', 'tee']);
+/**
+ * File commands Claude Code recognises in Bash and holds to Read and Edit rules.
+ * The docs name cat, head, tail and sed; grep, awk and base64 were seen refused
+ * in live sessions (v2.1.215 and v2.1.325), and `cp` from v2.1.325. The real
+ * list is probably longer.
+ */
+const FILE_READERS = new Set(['cat', 'head', 'tail', 'sed', 'tee', 'grep', 'awk', 'base64', 'cp']);
+/** Their first plain argument is a pattern or a program, not a file. */
+const PATTERN_FIRST = new Set(['grep', 'awk', 'select-string']);
+/** PowerShell cmdlets seen held to Read rules in live sessions. Aliases are resolved first. */
+const PS_FILE_READERS = new Set(['get-content', 'select-string', 'resolve-path']);
+/**
+ * PowerShell cmdlets seen held to Edit rules (v2.1.325), on every path they
+ * name. `Copy-Item` is here because it was refused when its source had an Edit
+ * rule and allowed when the source had only a Read rule.
+ */
+const PS_FILE_WRITERS = new Set(['set-content', 'add-content', 'copy-item']);
 
 function allCommands(guard: GuardApi, text: string, ps: boolean, depth = 0): ParsedCommand[] {
   if (depth > 6) return [];
@@ -272,12 +295,21 @@ function commandHits(guard: GuardApi, call: { tool: 'Bash' | 'PowerShell'; input
         }
       }
 
-      if (!ps && FILE_READERS.has(program)) {
-        const writes = program === 'tee' || (program === 'sed' && words.some((w) => /^(-[a-zA-Z]*i|--in-place)/.test(w.v)));
-        for (const arg of guard.positionals(words.slice(1))) {
+      const psWriter = ps && PS_FILE_WRITERS.has(program.toLowerCase());
+      if (psWriter || (ps ? PS_FILE_READERS.has(program.toLowerCase()) : FILE_READERS.has(program))) {
+        // `tee` only writes. `sed -i` reads the file and writes it back, so both kinds of rule apply.
+        const inPlace = program === 'sed' && words.some((w) => /^(-[a-zA-Z]*i|--in-place)/.test(w.v));
+        const kinds: Access[] = program === 'tee' || psWriter ? ['shellWrite'] : inPlace ? ['read', 'shellWrite'] : ['read'];
+        let targets = guard.positionals(words.slice(1));
+        if (PATTERN_FIRST.has(program.toLowerCase())) targets = targets.slice(1);
+        // Only the sources of a copy are read; what happens to the destination was not tested.
+        if (program === 'cp') targets = targets.slice(0, -1);
+        for (const arg of targets) {
           const abs = guard.resolvePath(arg, p.cwd, p);
           if (!abs) continue;
-          for (const h of pathHits(guard, abs, writes ? 'edit' : 'read', rules, p, `\`${program}\` ${writes ? 'writes' : 'reads'} ${arg}`)) add(h);
+          for (const kind of kinds) {
+            for (const h of pathHits(guard, abs, kind, rules, p, `\`${program}\` ${kind === 'read' ? 'reads' : 'writes'} ${arg}`)) add(h);
+          }
         }
       }
     }
@@ -285,7 +317,7 @@ function commandHits(guard: GuardApi, call: { tool: 'Bash' | 'PowerShell'; input
       if (r.op !== '>' && r.op !== '<') continue;
       const abs = guard.resolvePath(r.target, p.cwd, p);
       if (!abs) continue;
-      const access = r.op === '>' ? 'edit' : 'read';
+      const access: Access = r.op === '>' ? 'shellWrite' : 'read';
       for (const h of pathHits(guard, abs, access, rules, p, `the command redirects ${r.op === '>' ? 'into' : 'from'} ${r.target}`)) add(h);
     }
   }

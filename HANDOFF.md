@@ -6,12 +6,12 @@ Written 2026-11-14 for whoever picks this up next. Read this first, then `PLAN.m
 
 A static web page that builds Claude Code deny rules. A person picks what they want to protect against, fills in the few details only they know (secret paths, protected branches, production names), and gets settings JSON to paste, plus an optional hook script. A "Try it" box shows whether a typed command would be stopped and by what.
 
-All seven phases in `PLAN.md` section 8 are written. Nothing has been deployed, and nothing has been verified inside a real Claude Code session.
+All seven phases in `PLAN.md` section 8 are written. Nothing has been deployed. The rules and the hook were run in a real Claude Code session on 2026-11-14 (v2.1.215, native Windows only); results are in `PLAN.md` section 9.
 
 ## State of the repo
 
-- **`main`** holds phases 1 to 6, merged through pull requests 1 to 4 on `dotbatch/agent-deny-rule-builder`.
-- **Branch `infrastructure-packs`** holds phase 7 and this file, committed with a clean working tree. When these notes were written it was **not yet pushed or merged**. Run `git log --oneline -5 main` and `gh pr list --state all` to see whether that has changed. If it has not, push the branch and open a pull request against `main`; the owner merges.
+- **`main`** holds phases 1 to 7, merged through pull requests 1 to 5 on `dotbatch/agent-deny-rule-builder`.
+- Phase 7 was merged through pull request 5.
 - There is no CI. Every "tests pass" claim in the pull requests comes from local runs.
 - There is no README. `PLAN.md` and this file are the only docs.
 
@@ -34,6 +34,7 @@ npm run dev
 ```
 
 - `npm test` runs 971 tests in about 15 seconds.
+- `npm run live-test rules <empty-folder>` (or `hook`, and optionally `readers` as a third word) runs real tool calls through the signed-in `claude` CLI and compares them with the simulator. It costs roughly a dollar of usage per run and takes a few minutes.
 - `npm run dev` serves the page. `.claude/launch.json` starts it on port 5391, because 5173 was taken by another project on the machine this was built on.
 - `npm run build` typechecks and writes `dist/` (ignored by git).
 - Node 22.14 was used. The only dependencies are `typescript`, `vitest`, `vite`, and `@types/node`.
@@ -50,6 +51,7 @@ npm run dev
 | `src/hook/deny-guard.cjs` | The hook the user installs. Plain CommonJS, no dependencies, about 900 lines. Shipped as-is. |
 | `src/simulator/simulate.ts` | Predicts what rules and hook do to one tool call. Backs the "Try it" box and the catalog proof tests. |
 | `src/app/` | The page: `main.ts` (DOM), `state.ts` (state, presets, storage), `style.css`. |
+| `scripts/live-test.ts` | The live test against the real CLI. Not part of `npm test`. |
 | `refrences/` | The two source transcripts. The folder name is misspelled; see questions below. |
 
 ## How the pieces fit
@@ -70,24 +72,26 @@ npm run dev
 
 This is what backs the "only the hook stops these" examples on the page. It has found real catalog bugs four times, so keep it green and add a test case with every new pattern.
 
-**The limit:** the rules half is a reading of the docs, not Claude Code's matcher. If the docs and the product disagree, these tests still pass and the generated rules are still wrong. Only a live session settles that.
+**The limit:** the rules half is a reading of the docs, not Claude Code's matcher. If the docs and the product disagree, these tests still pass and the generated rules are still wrong. Only a live session settles that. Live runs on v2.1.215 and v2.1.325 (native Windows) found the differences listed in `PLAN.md` section 9, and the simulator was corrected for them. On v2.1.325 the core set agrees 23 of 23, with and without the hook.
 
 ## Not done
 
-1. **Live test in a real Claude Code session.** The single biggest gap. `PLAN.md` section 9 has a seven-case matrix. It was attempted three times and failed each time because the `claude` CLI on the build machine reported `"loggedIn": false`, even after the user signed in. The stored login file was not updated by those sign-ins; the cause was never found. Test rules-only first, then rules plus hook. Test on macOS or Linux too, since the sandbox cannot be tested on native Windows.
-2. **Copy and download buttons** on the page were never clicked in testing.
-3. **The optional `autoMode` fragment** from `PLAN.md` section 6 is not generated. Findings on how it must work are in section 9: it is ignored in project settings, and every list must include `"$defaults"`.
-4. **Shareable links.** State lives in `localStorage` only.
-5. **Deployment.** Not discussed. `npm run build` output is fully static.
-6. **CI.** None.
-7. **README.** None.
+1. **Live test on macOS or Linux.** The live test has only been run on native Windows (v2.1.215 and v2.1.325), where the sandbox cannot be tested at all. Only the Essentials preset was exercised; the infrastructure items and the larger presets were not.
+2. **Secret files can be overwritten from the shell.** A `Read(...)` rule stops the Edit tool but not `echo x > .env`; only an `Edit(...)` rule stops a shell write. The secrets items write Read rules only. Decide whether to add Edit rules for them (see `PLAN.md` section 9).
+3. **Copy and download buttons** on the page were never clicked in testing.
+4. **The optional `autoMode` fragment** from `PLAN.md` section 6 is not generated. Findings on how it must work are in section 9: it is ignored in project settings, and every list must include `"$defaults"`.
+5. **Shareable links.** State lives in `localStorage` only.
+6. **Deployment.** Not discussed. `npm run build` output is fully static.
+7. **CI.** None.
+8. **README.** None.
 
 ## Known issues and risks
 
 - **One unexplained test stall.** The first full run after the hook was written hung and was stopped. It has not recurred in dozens of runs since. Stray worker processes are the likely cause, but an intermittent hang in the hook's tokenizer is not ruled out. A hook that hangs would stall every shell command, so if it ever recurs, treat it as serious.
 - **The hook's tokenizer is hand-written.** It is not a full shell parser. Unusual quoting could be misread in either direction.
-- **`"onFailure": "block"`** is written on the hook by default and needs Claude Code v2.1.295 or later. Whether older versions reject a settings file containing that key was not checked. The build machine's CLI was v2.1.215.
-- **Rule count.** The "Production access" preset produced 218 block rules and 424 ask rules on Windows. Whether Claude Code has a limit, or slows down at that size, is unknown.
+- **`"onFailure": "block"`** is written on the hook by default and needs Claude Code v2.1.295 or later. v2.1.215 accepts a settings file containing the key and runs the hook; it presumably just ignores the key, so a crashed hook there lets the call through.
+- **Rule count.** The "Production access" preset produced 218 block rules and 424 ask rules on Windows. The Essentials preset (about 240 rules) loaded fine in the live run; the larger presets were not tried.
+- **The list of file commands Claude Code holds to Read rules is sampled, not known.** `FILE_READERS` and `PS_FILE_READERS` in `simulate.ts` hold the documented ones plus those seen refused live. Anything not on the list is shown as "needs the hook", which errs on the safe side.
 - **Cloud CLI prompts.** With the hook on, every `aws ... delete-*` and every `gcloud` or `az` `delete` asks, including harmless ones. The rules alone list only high-impact services.
 - **The hook is evaluated in the browser with `new Function`** on its bundled source text. This will break under a strict content security policy.
 - **Docs may have moved.** Everything about Claude Code behaviour was read from `code.claude.com/docs` on 2026-11-13. Re-check before trusting a detail.
@@ -131,8 +135,8 @@ These were raised during the build and are still open. Each one has a default th
 
 ## Suggested next steps, in order
 
-1. Get phase 7 merged if `main` does not have it yet (see "State of the repo").
-2. Get the `claude` CLI signed in and run the live test matrix. Fix whatever it shows. This decides whether the rules half of the simulator can be trusted.
+1. Decide whether the secrets items should also write `Edit(...)` rules, so a shell command cannot overwrite a secret file (see "Not done").
+2. Run it on macOS or Linux, with the sandbox on.
 3. Get answers to the questions above, starting with 1, 2, 3 and 8.
 4. Add CI and a short README.
 5. Click through copy and download on the page.

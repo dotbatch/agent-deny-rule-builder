@@ -88,7 +88,7 @@ export const secrets: CatalogItem[] = [
     tests: [
       { tool: 'Read', input: '~/.ssh/id_ed25519', expect: 'block', by: 'rule' },
       { tool: 'Bash', input: 'cat ~/.ssh/id_rsa', expect: 'block', by: 'rule' },
-      { tool: 'Bash', input: 'base64 $HOME/.ssh/id_ed25519', expect: 'block', by: 'hook' },
+      { tool: 'Bash', input: 'xxd $HOME/.ssh/id_ed25519', expect: 'block', by: 'hook' },
       { tool: 'Edit', input: '~/.ssh/authorized_keys', expect: 'block', by: 'rule' },
       { tool: 'Bash', input: 'ssh deploy@staging.example.com uptime', expect: 'allow' },
       { tool: 'Bash', input: 'git fetch origin', expect: 'allow' },

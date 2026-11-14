@@ -17,13 +17,20 @@ describe('path rules', () => {
       'Read(!.env.example)',
       'Read(!.env.sample)',
       'Read(!.env.template)',
+      // A Read rule does not stop a shell command writing the file, so each path gets an Edit rule too.
+      'Edit(.env)',
+      'Edit(.env.*)',
+      'Edit(!.env.example)',
+      'Edit(!.env.sample)',
+      'Edit(!.env.template)',
       'Read(~/.ssh/**)',
+      'Edit(~/.ssh/**)',
     ]);
   });
 
   it('uses the exceptions the user gave', () => {
     const { settings } = run(['secrets.env-files'], mac, { envExceptions: ['.env.dist', 'nested/.env.x'] });
-    expect(settings.permissions.deny).toEqual(['Read(.env)', 'Read(.env.*)', 'Read(!.env.dist)']);
+    expect(settings.permissions.deny).toEqual(['Read(.env)', 'Read(.env.*)', 'Read(!.env.dist)', 'Edit(.env)', 'Edit(.env.*)', 'Edit(!.env.dist)']);
   });
 
   it('picks OS-specific locations', () => {
@@ -47,6 +54,11 @@ describe('path rules', () => {
       'Read(~/vault-export/**)',
       'Read(//c/keys/prod.pem)',
       'Read(//c/keys/prod.pem/**)',
+      'Edit(/secrets/**)',
+      'Edit(~/vault-export)',
+      'Edit(~/vault-export/**)',
+      'Edit(//c/keys/prod.pem)',
+      'Edit(//c/keys/prod.pem/**)',
     ]);
     expect(warnings.some((w) => w.includes('network path'))).toBe(true);
   });
@@ -217,7 +229,7 @@ describe('hook output', () => {
     expect(discard!.hookOnly).toContain('git -C . reset --hard');
     expect(discard!.gaps[0]).toContain('`git -C . reset --hard`');
     expect(discard!.gaps[0]).toContain('The hook stops these');
-    expect(ssh!.hookOnly).toEqual(['base64 $HOME/.ssh/id_ed25519']);
+    expect(ssh!.hookOnly).toEqual(['xxd $HOME/.ssh/id_ed25519']);
     // Nothing for the hook to add on an MCP rule, so no extra line.
     expect(mcp!.hookOnly).toEqual([]);
     expect(mcp!.gaps.some((g) => g.includes('The hook stops these'))).toBe(false);
