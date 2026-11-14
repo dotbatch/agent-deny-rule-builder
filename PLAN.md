@@ -290,7 +290,7 @@ All seven rows of the matrix below behaved as expected, in both modes. Beyond th
 - **Hook:** loads through the exec form with `${CLAUDE_PROJECT_DIR}` on Windows, runs before the permission rules for shell commands, and its message reaches Claude. `"onFailure": "block"` is accepted by v2.1.215 without complaint. A hook `ask` with nobody to answer (`-p`) is refused and shows the hook's reason.
 - **Rule count:** 240-odd rules in one settings file loaded with no visible slowdown.
 
-What this means for the catalog: the secrets items write `Read(...)` rules only, so their rules do not stop a shell command overwriting a secret file (`echo x > .env`). The contents cannot be read that way, but the file can be destroyed. Adding a matching `Edit(...)` rule for each secret path would close this; it has not been done because it doubles those rules and is the owner's call.
+What this means for the catalog: a path an item marks as "read" is now written as both a Read rule and an Edit rule (with the same carve-outs), so a secret file can be neither read nor overwritten from the shell. With those rules in place, a live run on v2.1.325 refused `echo x > .env`, `echo x | tee -a .env` and PowerShell `'x' > .env`, `Set-Content`, `Add-Content` and `Copy-Item` on `.env`, and still allowed a write to `.env.example`. This doubles the path rules of the secrets items.
 
 The simulator models the current CLI. On a CLI older than v2.1.257 it overstates what the rules stop for `cat < file`, `cp` and `sed -i`.
 
