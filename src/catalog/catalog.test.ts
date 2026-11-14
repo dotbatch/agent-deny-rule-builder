@@ -148,6 +148,8 @@ describe.each(catalog.map((item) => [item.id, item] as const))('%s', (_id, item)
       // Claude Code reads a trailing `:*` as another spelling of ` *`, so `Env:*` would mean `Env *`.
       expect(pat.endsWith(':*'), `"${pat}" ends with :*`).toBe(false);
       // A leading wildcard would match every program.
+      // The one allowed exception is `*{input}*`: any command containing a value the user gave.
+      if (/^\*\{\w+\}\*$/.test(pat)) continue;
       expect(pat.startsWith('*'), `"${pat}" starts with *`).toBe(false);
       // The words before the first * are what limit the rule; require a real program name.
       expect(pat.split('*')[0]!.trim().length, `"${pat}" has no fixed prefix`).toBeGreaterThan(1);

@@ -62,6 +62,22 @@ describe('page state', () => {
     expect(applyPreset(presets.find((p) => p.id === 'none')!.ids())).toEqual({});
   });
 
+  it('builds each preset on the one before it, from ids that exist', () => {
+    const known = new Set(catalog.map((i) => i.id));
+    const ids = (id: string) => presets.find((p) => p.id === id)!.ids();
+    for (const p of presets) {
+      expect(p.ids().filter((id) => !known.has(id)), p.id).toEqual([]);
+      expect(new Set(p.ids()).size, `${p.id} has duplicates`).toBe(p.ids().length);
+    }
+    expect(ids('team')).toEqual(expect.arrayContaining(ids('essentials')));
+    expect(ids('production')).toEqual(expect.arrayContaining(ids('team')));
+    expect(ids('team').length).toBeGreaterThan(ids('essentials').length);
+    // Infrastructure items are opt-in: only the production preset and "Everything" include them.
+    expect(ids('team').some((id) => id.startsWith('infra.'))).toBe(false);
+    expect(ids('production').filter((id) => id.startsWith('infra.'))).toHaveLength(catalog.filter((i) => i.category === 'infra').length);
+    expect(catalog.filter((i) => i.category === 'infra' && i.essential)).toEqual([]);
+  });
+
   it('produces output for the essentials preset with no typing', () => {
     const s = initialState('macos');
     s.selected = applyPreset(presets.find((p) => p.id === 'essentials')!.ids());

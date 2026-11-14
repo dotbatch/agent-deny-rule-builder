@@ -7,7 +7,7 @@
  * against both so every item ships with proof of what it catches.
  */
 
-export type Category = 'secrets' | 'local' | 'remote';
+export type Category = 'secrets' | 'local' | 'remote' | 'infra';
 
 /** critical: unrecoverable and broad. high: unrecoverable. medium: costly to undo. */
 export type Severity = 'critical' | 'high' | 'medium';
@@ -99,6 +99,10 @@ export interface PathRule {
  * trailing ` *` also matches the bare command. `{inputId}` in a pattern
  * expands to one rule per value of that string-list input.
  *
+ * A pattern may start with `*` only as `*{inputId}*`, meaning "any command
+ * containing this value". That is sound for deny and ask rules; it would be
+ * dangerous in an allow rule, which this tool never writes.
+ *
  * These match the form Claude usually writes. They do not match the same
  * program by absolute path, inside `bash -c`, or with options moved around;
  * pair with a hook check when that matters.
@@ -180,6 +184,12 @@ export interface RegexCheck extends HookCheckBase {
   type: 'regex';
   pattern: string;
   flags?: string;
+  /**
+   * Only test commands run by one of these programs. Use it when the pattern
+   * would otherwise fire on text that merely mentions it, such as SQL
+   * keywords in a grep.
+   */
+  program?: string[];
 }
 
 /**

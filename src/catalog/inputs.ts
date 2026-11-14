@@ -59,6 +59,14 @@ export const inputs: InputDef[] = [
     required: true,
   },
   {
+    id: 'prodIdentifiers',
+    kind: 'string-list',
+    label: 'Names that mean production',
+    help: 'Hostnames, database names, cluster contexts or cloud profiles. Any command containing one is caught, so use full names: a short word like "prod" would also match "product".',
+    placeholder: 'prod-db.internal, acme-prod',
+    required: true,
+  },
+  {
     id: 'mcpTools',
     kind: 'mcp-tool-list',
     label: 'MCP tools to block',

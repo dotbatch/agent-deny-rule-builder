@@ -258,7 +258,8 @@ function commandHits(guard: GuardApi, call: { tool: 'Bash' | 'PowerShell'; input
     if (!out.has(hit.rule)) out.set(hit.rule, hit);
   };
 
-  for (const cmd of allCommands(guard, call.input, ps)) {
+  const commands = allCommands(guard, call.input, ps);
+  for (const cmd of commands) {
     const words = ruleWords(cmd, ps);
     if (words.length > 0) {
       let program = words[0]!.v;
@@ -267,7 +268,7 @@ function commandHits(guard: GuardApi, call: { tool: 'Bash' | 'PowerShell'; input
       for (const r of rules) {
         const parsed = parseRule(r.rule);
         if (parsed?.kind === 'command' && parsed.tool === call.tool && guard.matchPattern(parsed.pattern, text, ps)) {
-          add({ rule: r.rule, mode: r.mode, items: r.items, via: text === call.input.trim() ? undefined : `matches the part \`${text}\`` });
+          add({ rule: r.rule, mode: r.mode, items: r.items, via: commands.length === 1 ? undefined : `matches the part \`${text}\`` });
         }
       }
 
