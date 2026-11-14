@@ -382,13 +382,17 @@ input[type='checkbox']:checked,
 }
 .chip {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   cursor: pointer;
 }
 .chip input {
   position: absolute;
   opacity: 0;
 }
-.chip span {
+/* The pill is the span right after the box; a note after it stays plain text. */
+.chip input + span {
   display: block;
   padding: 0.3rem 0.85rem 0.3rem 0.7rem;
   border-radius: 99rem;
@@ -398,8 +402,21 @@ input[type='checkbox']:checked,
   color: var(--muted);
   transition: background-color 150ms, color 150ms, border-color 150ms;
 }
-.chip span::before {
+.chip input + span::before {
   content: '+ ';
+}
+.chip:has(input:disabled) {
+  cursor: not-allowed;
+}
+.chip input:disabled + span {
+  opacity: 0.5;
+}
+.chip-note {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.chip-note:empty {
+  display: none;
 }
 .chip input:checked + span {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -1091,7 +1108,7 @@ tr:last-child td {
 .chips:has(.chip.small) {
   gap: 0.375rem;
 }
-.chip.small span {
+.chip.small input + span {
   padding: 0.2rem 0.7rem 0.2rem 0.6rem;
   font-size: 0.875rem;
 }

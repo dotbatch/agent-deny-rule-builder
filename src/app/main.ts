@@ -191,7 +191,7 @@ function renderEnvironment(): HTMLElement {
         changed();
       },
     });
-    const note = h('span', { class: 'muted' });
+    const note = h('span', { class: 'chip-note' });
     shellBoxes.set(shell, box);
     shellNotes.set(shell, note);
     shellRow.append(h('label', { class: 'chip' }, box, h('span', {}, label), note));
@@ -201,7 +201,7 @@ function renderEnvironment(): HTMLElement {
       const allowed = shellAllowed(state.env.os, shell);
       box.disabled = !allowed;
       box.checked = allowed && state.env.shells.includes(shell);
-      shellNotes.get(shell)!.textContent = allowed ? '' : ' Windows only';
+      shellNotes.get(shell)!.textContent = allowed ? '' : 'Windows only';
     }
     testerSyncShell();
   };
