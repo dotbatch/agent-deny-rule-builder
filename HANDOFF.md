@@ -12,8 +12,9 @@ All seven phases in `PLAN.md` section 8 are written. Nothing has been deployed. 
 
 - **`main`** holds phases 1 to 7, merged through pull requests 1 to 5 on `dotbatch/agent-deny-rule-builder`.
 - Phase 7 was merged through pull request 5.
-- There is no CI. Every "tests pass" claim in the pull requests comes from local runs.
-- There is no README. `PLAN.md` and this file are the only docs.
+- CI (`.github/workflows/ci.yml`) runs typecheck, tests and build on Ubuntu and Windows for every pull request and every push to `main`.
+- The page is deployed to GitHub Pages (`.github/workflows/pages.yml`) at https://dotbatch.github.io/agent-deny-rule-builder/ on every push to `main`.
+- `README.md` links to the live page.
 
 ## Run it
 
@@ -81,9 +82,6 @@ This is what backs the "only the hook stops these" examples on the page. It has 
 3. **Copy and download buttons** on the page were never clicked in testing.
 4. **The optional `autoMode` fragment** from `PLAN.md` section 6 is not generated. Findings on how it must work are in section 9: it is ignored in project settings, and every list must include `"$defaults"`.
 5. **Shareable links.** State lives in `localStorage` only.
-6. **Deployment.** Not discussed. `npm run build` output is fully static.
-7. **CI.** None.
-8. **README.** None.
 
 ## Known issues and risks
 
@@ -121,10 +119,10 @@ These were raised during the build and are still open. Each one has a default th
 5. **How deep should command parsing go?** Section 10 recommends handling the documented bypass forms and pointing to destructive_command_guard beyond that. That is what was built. Never confirmed.
 6. **Shareable links: selections only, never typed paths?** Section 10 recommends this. Never confirmed, and not built.
 7. **Is the `autoMode` fragment wanted?** It was listed as optional and skipped.
-8. **Where will the page be hosted, and under what name?** Never discussed.
+8. ~~**Where will the page be hosted, and under what name?**~~ Answered: GitHub Pages, at https://dotbatch.github.io/agent-deny-rule-builder/.
 9. **Is linking to destructive_command_guard from the page acceptable?** The output recommends it by name when three or more infrastructure items are selected. The owner asked for it to be referenced, but did not see this wording before it was written.
 10. **Should the infrastructure items default to "ask"?** All seven do, and none is in the Essentials preset. This was a judgment call, not a request.
-11. **Is CI wanted?** A workflow running `npm run typecheck` and `npm test` would take a few minutes to add.
+11. ~~**Is CI wanted?**~~ Answered: yes. Added in `.github/workflows/ci.yml`.
 12. **Design.** The brief said not to worry about it. The page is unstyled beyond basics. When that changes is the owner's call.
 
 ## Decisions the owner did make
@@ -137,8 +135,8 @@ These were raised during the build and are still open. Each one has a default th
 
 1. Run the live test on macOS or Linux, with the sandbox on.
 2. Run it with the larger presets, which include the infrastructure items.
-3. Get answers to the questions above, starting with 1, 2, 3 and 8.
-4. Add CI and a short README.
+3. Get answers to the questions above, starting with 1, 2 and 3.
+4. ~~Add CI and a short README.~~ Done.
 5. Click through copy and download on the page.
 6. Then the optional work: `autoMode` fragment, shareable links, design.
 7. **Tool picker (idea, not started).** On the page, let the user pick the tools they use (GitHub, npm, Docker, AWS, Terraform, Postgres, and so on), each shown with its logo. The selected tools generate rules automatically from the catalog. Users can also add their own tools that are not in the list, with their own commands and paths.
