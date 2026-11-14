@@ -210,6 +210,12 @@ Phase 5 notes:
 - The dev server uses port 5391; 5173 was already taken on this machine.
 - No design work, per the brief: system font, minimal CSS.
 
+- Rules only or rules plus hook: done. Step 1 of the page has a "How strict" choice. Rules only is the default; the hook is opt-in and labelled for advanced users, with an expandable explanation of the difference and what the hook costs.
+  - With the hook off, the generator writes no `hooks` block, rules file, or hook warnings. The permission rules are identical either way.
+  - Each item reports `hookOnly`: the commands from its own test cases that only the hook stops, filtered to the shells in use. With the hook off these are shown as a gap with examples; with it on they are shown as what the hook is doing.
+  - An item that works only through the hook in the current setup (recursive delete on PowerShell-only) is marked skipped with that reason when the hook is off.
+  - The generator's own default stays hook-on when the field is omitted; the page sets it off explicitly.
+
 Design choices made while writing the catalog, which phase 4 must honor:
 
 - The hook re-applies every command pattern of an item to the normalized command. So `/usr/bin/printenv` and `bash -c 'printenv'` are caught without a separate check per item.

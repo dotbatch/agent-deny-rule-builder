@@ -130,6 +130,18 @@ function renderEnvironment(): HTMLElement {
     );
   }
 
+  syncSandbox();
+  section.append(
+    h('label', {}, 'Operating system: ', osSelect),
+    shellRow,
+    scopeRow,
+    h('label', {}, 'Sandbox: ', sandboxSelect, sandboxNote),
+    renderHookChoice(),
+  );
+  return section;
+}
+
+function renderHookChoice(): HTMLElement {
   const failClosed = h('input', {
     type: 'checkbox',
     checked: state.env.hookFailClosed !== false,
@@ -138,22 +150,108 @@ function renderEnvironment(): HTMLElement {
       changed();
     },
   });
+  const failClosedLabel = h(
+    'label',
+    {},
+    failClosed,
+    ' Block the command if the hook itself fails ',
+    h('span', { class: 'muted' }, '(needs Claude Code v2.1.295 or later; untick on older versions)'),
+  );
+  const sync = () => {
+    failClosed.disabled = state.env.hook === false;
+    failClosedLabel.classList.toggle('muted', state.env.hook === false);
+  };
 
-  syncSandbox();
-  section.append(
-    h('label', {}, 'Operating system: ', osSelect),
-    shellRow,
-    scopeRow,
-    h('label', {}, 'Sandbox: ', sandboxSelect, sandboxNote),
+  const choice = (value: boolean, title: string, summary: string) =>
     h(
       'label',
       {},
-      failClosed,
-      ' Block the command if the hook itself fails ',
-      h('span', { class: 'muted' }, '(needs Claude Code v2.1.295 or later; untick on older versions)'),
+      h('input', {
+        type: 'radio',
+        name: 'hook',
+        checked: (state.env.hook !== false) === value,
+        onchange: () => {
+          state.env.hook = value;
+          sync();
+          changed();
+        },
+      }),
+      ' ',
+      h('strong', {}, title),
+      ` ${summary}`,
+    );
+
+  const li = (...c: Child[]) => h('li', {}, ...c);
+  const info = h(
+    'details',
+    {},
+    h('summary', {}, 'What is the difference?'),
+    h(
+      'p',
+      {},
+      h('strong', {}, 'Rules'),
+      ' are lines in your settings file. Claude Code checks them itself before every tool call, and a matching call never runs. They cover file reads and edits, web domains, MCP tools, and shell commands.',
+    ),
+    h(
+      'p',
+      {},
+      'For shell commands, a rule matches the text of the command as it is usually written. ',
+      h('code', {}, 'Bash(git push --force *)'),
+      ' stops ',
+      h('code', {}, 'git push --force'),
+      ' but not ',
+      h('code', {}, 'git -C . push --force'),
+      ' or ',
+      h('code', {}, "bash -c 'git push --force'"),
+      '. Claude rarely writes commands that way, but nothing prevents it.',
+    ),
+    h(
+      'p',
+      {},
+      h('strong', {}, 'The hook'),
+      ' is a script, ',
+      h('code', {}, 'deny-guard.cjs'),
+      ', that Claude Code runs before every shell command. It takes the command apart first, so those other spellings are caught too. It also does three things rules cannot:',
+    ),
+    h(
+      'ul',
+      {},
+      li('Judges a recursive delete by where it lands, so ', h('code', {}, 'rm -rf ../other-project'), ' is blocked and ', h('code', {}, 'rm -rf dist'), ' is not.'),
+      li('Looks up the current branch, so a bare ', h('code', {}, 'git push'), ' on a protected branch is caught.'),
+      li('Spots a protected file named inside an inline script, such as ', h('code', {}, `node -e "readFileSync('.env')"`), '.'),
+    ),
+    h('p', {}, h('strong', {}, 'What the hook costs you:')),
+    h(
+      'ul',
+      {},
+      li('Two more files to install and keep, and Node.js must be on your PATH.'),
+      li('A script of ours runs on your machine before every shell command. Read it before you trust it.'),
+      li('If it misreads a command it can block something harmless. If it breaks, it blocks every shell command until you fix or remove it.'),
+      li('It does nothing for file reads, web fetches or MCP tools. Rules already handle those in full.'),
+    ),
+    h(
+      'p',
+      {},
+      h('strong', {}, 'Neither one'),
+      ' stops a script that Claude writes to disk and then runs, or what a program does once it is running. That is what the sandbox is for.',
+    ),
+    h(
+      'p',
+      { class: 'muted' },
+      'Start with rules only if you are new to this. Step 4 lists, for each thing you selected, exactly what the hook would add.',
     ),
   );
-  return section;
+
+  sync();
+  return h(
+    'fieldset',
+    {},
+    h('legend', {}, 'How strict'),
+    choice(false, 'Rules only.', 'One block of settings to paste. Nothing else to install.'),
+    choice(true, 'Rules plus hook.', 'For advanced users. Also catches commands written in unusual ways. Needs Node.js.'),
+    failClosedLabel,
+    info,
+  );
 }
 
 // ------------------------------------------------------------ 2. protections
@@ -356,6 +454,13 @@ function installSteps(result: GenerateResult): HTMLElement {
   return steps;
 }
 
+function hookExamples(commands: string[]): HTMLElement {
+  const list = h('ul');
+  for (const c of commands) list.append(h('li', {}, h('code', {}, c)));
+  const heading = state.env.hook === false ? 'Only the hook would stop these (it is off):' : 'The hook, not a rule, is what stops these:';
+  return h('div', {}, h('p', {}, heading), list);
+}
+
 function renderOutput(): void {
   outputEl.replaceChildren(h('h2', {}, '4. Your rules'));
   const selections = toSelections(state.selected);
@@ -369,6 +474,17 @@ function renderOutput(): void {
   outputEl.append(
     h('p', {}, `${deny.length} block rules, ${ask.length} ask rules`, result.hook ? ', plus a hook.' : '.', result.settings.sandbox ? ' Sandbox on.' : ''),
   );
+  const hookWouldHelp = result.items.filter((i) => i.hookOnly.length > 0);
+  if (state.env.hook === false && hookWouldHelp.length > 0) {
+    outputEl.append(
+      h(
+        'p',
+        {},
+        h('strong', {}, 'Rules only. '),
+        `The hook would catch more for ${hookWouldHelp.length} of your ${result.items.length} selections; each one below shows examples. Switch to "Rules plus hook" in step 1 to add it.`,
+      ),
+    );
+  }
   if (result.warnings.length > 0) {
     const list = h('ul');
     for (const w of result.warnings) list.append(h('li', {}, w));
@@ -407,6 +523,7 @@ function renderOutput(): void {
           item.skipped ? h('span', { class: 'skipped' }, ` Skipped. ${item.skipped}`) : null,
         ),
         gaps,
+        item.hookOnly.length > 0 ? hookExamples(item.hookOnly) : null,
         item.note ? h('p', { class: 'muted' }, item.note) : null,
       ),
     );

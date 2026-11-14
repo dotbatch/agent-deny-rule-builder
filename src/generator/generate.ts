@@ -13,6 +13,11 @@ export interface Environment {
   /** `strict` also refuses to start without the sandbox and forbids unsandboxed retries. */
   sandbox: 'off' | 'on' | 'strict';
   /**
+   * Also emit the PreToolUse hook and its rules file. Defaults to true here;
+   * the page starts with it off, since rules alone are the simpler install.
+   */
+  hook?: boolean;
+  /**
    * Write `"onFailure": "block"` on the hook so a crash or timeout blocks the
    * call. Defaults to true. Turn off for Claude Code older than v2.1.295.
    */
@@ -50,6 +55,11 @@ export interface ItemReport {
   skipped?: string;
   /** What still gets through, including the sandbox situation for this environment. */
   gaps: string[];
+  /**
+   * Commands from the item's test cases that only the hook stops, for the
+   * shells in use. Empty when the hook would add nothing for this item.
+   */
+  hookOnly: string[];
   note?: string;
 }
 
@@ -173,6 +183,7 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
   };
   const holds = (c?: Condition) => !c || flag(c.input) === c.equals;
 
+  const hookEnabled = env.hook !== false;
   const sandboxAvailable = env.os !== 'windows';
   const sandboxOn = env.sandbox !== 'off' && sandboxAvailable;
   if (env.sandbox !== 'off' && !sandboxAvailable) {
@@ -340,8 +351,15 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
       .filter((d): d is InputDef => !!d && !!d.required && d.kind !== 'boolean' && list(d.id).length === 0);
 
     const emitted = missing.length > 0 ? [] : emitItem(item);
-    const forHook = missing.length > 0 ? null : hookItem(item, mode);
+    const hookable = missing.length > 0 ? null : hookItem(item, mode);
+    const forHook = hookEnabled ? hookable : null;
     if (forHook) hookItems.push(forHook);
+    const hookOnly = hookable
+      ? item.tests
+          .filter((t) => t.expect === 'block' && t.by === 'hook')
+          .filter((t) => env.shells.includes(t.tool === 'PowerShell' ? 'powershell' : 'bash'))
+          .map((t) => t.input)
+      : [];
     for (const e of emitted) {
       const existing = byRule.get(e.rule);
       if (existing) {
@@ -369,10 +387,15 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
       skipped = `Needs: ${missing.map((d) => d.label).join(', ')}.`;
       warn(`"${item.title}" was skipped. ${skipped}`);
     } else if (emitted.length === 0 && !forHook) {
-      skipped = 'Nothing applies to this environment.';
+      skipped = hookable ? 'In this setup it works only through the hook, which is off.' : 'Nothing applies to this environment.';
+      if (hookable) warn(`"${item.title}" was skipped. ${skipped}`);
+    }
+    if (!hookEnabled && hookOnly.length > 0) {
+      const examples = hookOnly.slice(0, 2).map((c) => `\`${c}\``).join(' or ');
+      gaps.unshift(`Without the hook, some ways of doing this get past the rules, for example ${examples}. The hook stops these.`);
     }
 
-    items.push({ id: item.id, title: item.title, mode, rules: new Set(emitted.map((e) => e.rule)).size, skipped, gaps, note: item.note });
+    items.push({ id: item.id, title: item.title, mode, rules: new Set(emitted.map((e) => e.rule)).size, skipped, gaps, hookOnly, note: item.note });
   }
 
   // Stable: carve-out groups first, then everything else, each in selection order.
