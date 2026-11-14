@@ -77,7 +77,7 @@ This is what backs the "only the hook stops these" examples on the page. It has 
 ## Not done
 
 1. **Live test on macOS or Linux.** The live test has only been run on native Windows (v2.1.215 and v2.1.325), where the sandbox cannot be tested at all. Only the Essentials preset was exercised; the infrastructure items and the larger presets were not.
-2. **Secret files can be overwritten from the shell.** A `Read(...)` rule stops the Edit tool but not `echo x > .env`; only an `Edit(...)` rule stops a shell write. The secrets items write Read rules only. Decide whether to add Edit rules for them (see `PLAN.md` section 9).
+2. **The file-command lists are sampled.** The live probe covered about twenty commands. Others that read or write a file may or may not be held to path rules.
 3. **Copy and download buttons** on the page were never clicked in testing.
 4. **The optional `autoMode` fragment** from `PLAN.md` section 6 is not generated. Findings on how it must work are in section 9: it is ignored in project settings, and every list must include `"$defaults"`.
 5. **Shareable links.** State lives in `localStorage` only.
@@ -102,7 +102,7 @@ This is what backs the "only the hook stops these" examples on the page. It has 
 - **A literal `*` cannot be written in a pattern.** `Bash(rm -rf *)` matches every recursive delete. Glob targets are left to the hook.
 - **A leading `*` is allowed only as `*{input}*`.** Used by "Anything aimed at production". Sound for deny and ask, dangerous for allow, which this tool never writes.
 - **`/path` in user settings means `~/.claude/path`.** The generator writes project-relative paths without the slash there, and warns.
-- **Read deny blocks edits too; `Write(path)`, `Grep(path)` and `Glob(path)` match nothing.** Use `Read` and `Edit` only.
+- **A Read rule blocks the Edit tool but not a shell write; `Write(path)`, `Grep(path)` and `Glob(path)` match nothing.** `echo x > file` is stopped only by an Edit rule, so the generator writes both for every "read" path. Use `Read` and `Edit` only.
 - **Native Windows has no sandbox.** The generator never writes the sandbox block there.
 - **The hook strips `sudo` to see the command behind it,** so a pattern like `sudo *` never matches in the hook. The sudo check is a regex on the command as written.
 - **A regex hook check on raw text fires on mentions** (`echo "use sudo"`, `grep "DROP TABLE"`). Limit it with the `program` field or anchor it to the start of the command.
@@ -135,8 +135,8 @@ These were raised during the build and are still open. Each one has a default th
 
 ## Suggested next steps, in order
 
-1. Decide whether the secrets items should also write `Edit(...)` rules, so a shell command cannot overwrite a secret file (see "Not done").
-2. Run it on macOS or Linux, with the sandbox on.
+1. Run the live test on macOS or Linux, with the sandbox on.
+2. Run it with the larger presets, which include the infrastructure items.
 3. Get answers to the questions above, starting with 1, 2, 3 and 8.
 4. Add CI and a short README.
 5. Click through copy and download on the page.

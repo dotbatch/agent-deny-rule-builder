@@ -77,8 +77,9 @@ export interface Condition {
 
 /**
  * Blocks file access through `Read(...)` or `Edit(...)`.
- * A `read` rule also blocks Edit and Write on the same path, so use `edit`
- * only for files that may be read but must not change.
+ * A `read` path is written as both a Read and an Edit rule: the Read rule
+ * alone stops the Edit and Write tools but not a shell command writing the
+ * file. Use `edit` only for files that may be read but must not change.
  */
 export interface PathRule {
   kind: 'path';
