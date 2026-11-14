@@ -311,6 +311,12 @@ function renderItem(item: CatalogItem): HTMLElement {
   return card;
 }
 
+function presetHints(): HTMLElement {
+  const list = h('ul', { class: 'muted' });
+  for (const p of presets) if (p.id !== 'none') list.append(h('li', {}, h('strong', {}, `${p.label}: `), p.hint));
+  return h('details', {}, h('summary', {}, 'What each starting point includes'), list);
+}
+
 function renderProtections(): HTMLElement {
   const section = h('section', {}, h('h2', {}, '2. What to protect'));
   const presetRow = h('div', { class: 'row' }, 'Start from:');
@@ -337,6 +343,7 @@ function renderProtections(): HTMLElement {
       'The test for each one: if Claude gets it wrong once, can you take it back? These are the things you cannot.',
     ),
     presetRow,
+    presetHints(),
   );
   for (const category of categories) {
     section.append(h('h3', {}, category.title), h('p', { class: 'muted' }, category.blurb));
@@ -486,6 +493,19 @@ function renderOutput(): void {
         {},
         h('strong', {}, 'Rules only. '),
         `The hook would catch more for ${hookWouldHelp.length} of your ${result.items.length} selections; each one below shows examples. Switch to "Rules plus hook" in step 1 to add it.`,
+      ),
+    );
+  }
+  const infraCount = result.items.filter((i) => i.id.startsWith('infra.')).length;
+  if (infraCount >= 3) {
+    outputEl.append(
+      h(
+        'p',
+        {},
+        h('strong', {}, 'Working with a lot of infrastructure? '),
+        `You selected ${infraCount} infrastructure items. These cover the common destructive commands, not every service. `,
+        h('a', { href: 'https://github.com/Dicklesworthstone/destructive_command_guard', target: '_blank', rel: 'noopener noreferrer' }, 'destructive_command_guard'),
+        ' is a dedicated tool with around 50 packs for databases, Kubernetes, cloud providers, CI and more. It runs as a hook and can sit alongside these rules, which still handle what it does not: secret files, web domains and MCP tools.',
       ),
     );
   }

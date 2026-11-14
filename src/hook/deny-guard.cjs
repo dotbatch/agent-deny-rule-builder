@@ -762,6 +762,8 @@ function runCheck(check, unit, ctx, rules) {
     case 'argv':
       return checkArgv(check, unit) ? check.message : null;
     case 'regex': {
+      // An optional program list limits the check to commands run by those programs.
+      if (check.program && !check.program.some((p) => p.toLowerCase() === unit.program.toLowerCase())) return null;
       const re = new RegExp(check.pattern, check.flags || '');
       return re.test(unit.raw.trim()) || re.test(unit.norm) ? check.message : null;
     }

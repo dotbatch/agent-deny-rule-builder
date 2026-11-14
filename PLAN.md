@@ -224,6 +224,15 @@ Phase 5 notes:
   - **Stand-in folders.** The tester cannot know the user's real home or project path, so it uses placeholders and rewrites a typed path under a typical home folder (`C:\Users\name\...`, `/home/name/...`) to `~/...`.
   - **Limits.** It is our reading of the docs, not Claude Code's matcher; a real session is still the final word. PowerShell file cmdlets are not held to path rules in the simulator because the docs do not say they are.
 
+- Phase 7: done. `src/catalog/infra.ts` adds a fourth group, "Infrastructure and data", with seven items and 87 test cases. The catalog now has 30 items and 286 test cases, all checked against rules and hook.
+  - **Items:** anything aimed at production (by name), dropping and resetting databases, wiping container volumes, deleting Kubernetes resources, destroying infrastructure as code, deleting cloud resources, and changing the machine itself (sudo, permissions, services, firewall, registry).
+  - **All seven default to "ask" and none is in Essentials.** The same command is routine against a dev environment and a disaster against production, and the tool cannot tell which is which.
+  - **"Anything aimed at production" matches on a name, not a command.** The rule is `Bash(*name*)`, so it catches the name inside `bash -c`, after an assignment, or under any program, with or without the hook. A leading `*` is allowed in the catalog only in this `*{input}*` form; it would be dangerous in an allow rule, which this tool never writes.
+  - **Regex hook checks can now be limited to a program list.** SQL keywords are only checked in commands run by a database client, so `grep "DROP TABLE"` and a commit message are left alone.
+  - **Presets:** Essentials, Team repo (adds shared-repo damage and publish tokens), Production access (adds all of infrastructure), Everything, Clear. Each builds on the one before.
+  - **Handoff:** with three or more infrastructure items selected, the output points to destructive_command_guard for deeper coverage and says what these rules still do that it does not.
+  - **Known trade-off:** with the hook on, every `aws ... delete-*` and every `gcloud`/`az` `delete` asks, including harmless ones. The rules alone list only high-impact services.
+
 Design choices made while writing the catalog, which phase 4 must honor:
 
 - The hook re-applies every command pattern of an item to the normalized command. So `/usr/bin/printenv` and `bash -c 'printenv'` are caught without a separate check per item.

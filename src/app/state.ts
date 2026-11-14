@@ -65,10 +65,28 @@ export function neededInputs(selected: AppState['selected']): InputDef[] {
   return inputDefs.filter((def) => ids.has(def.id));
 }
 
-export const presets: { id: string; label: string; ids: () => string[] }[] = [
-  { id: 'essentials', label: 'Essentials', ids: () => catalog.filter((i) => i.essential).map((i) => i.id) },
-  { id: 'all', label: 'Everything', ids: () => catalog.map((i) => i.id) },
-  { id: 'none', label: 'Clear', ids: () => [] },
+const essentialIds = () => catalog.filter((i) => i.essential).map((i) => i.id);
+const teamIds = () => [
+  ...essentialIds(),
+  'secrets.key-files',
+  'secrets.package-tokens',
+  'local.git-history-loss',
+  'remote.delete-remote-refs',
+  'remote.github-destructive',
+];
+const productionIds = () => [...teamIds(), ...catalog.filter((i) => i.category === 'infra').map((i) => i.id)];
+
+export const presets: { id: string; label: string; hint: string; ids: () => string[] }[] = [
+  { id: 'essentials', label: 'Essentials', hint: 'Secrets, lost work, force push and publishing. A sensible start for anyone.', ids: essentialIds },
+  { id: 'team', label: 'Team repo', hint: 'Essentials, plus shared-repo damage: deleting branches, repos and releases, and publish tokens.', ids: teamIds },
+  {
+    id: 'production',
+    label: 'Production access',
+    hint: 'Team repo, plus databases, clusters, cloud accounts and the machine itself. For a computer that can reach real systems.',
+    ids: productionIds,
+  },
+  { id: 'all', label: 'Everything', hint: 'Every item. Expect to fill in several details and to be asked often.', ids: () => catalog.map((i) => i.id) },
+  { id: 'none', label: 'Clear', hint: 'Untick everything.', ids: () => [] },
 ];
 
 export function applyPreset(ids: string[]): AppState['selected'] {

@@ -72,7 +72,7 @@ export interface SandboxSettings {
 /** A hook check with its inputs and conditions already resolved; read by deny-guard.cjs. */
 export type ResolvedCheck =
   | { type: 'argv'; program: string[]; sub?: string[]; flagsAny?: string[]; flagsNone?: string[]; message: string }
-  | { type: 'regex'; pattern: string; flags?: string; message: string }
+  | { type: 'regex'; pattern: string; flags?: string; program?: string[]; message: string }
   | { type: 'touchesPath'; access: 'read' | 'write'; paths: ResolvedPath[]; except: string[]; message: string }
   | { type: 'mentionsDomain'; domains: string[]; message: string }
   | { type: 'builtin'; name: string; message: string };
@@ -309,7 +309,7 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
           });
           break;
         case 'regex':
-          checks.push({ type: 'regex', pattern: check.pattern, flags: check.flags, message });
+          checks.push({ type: 'regex', pattern: check.pattern, flags: check.flags, program: check.program, message });
           break;
         case 'touchesPath': {
           const paths = resolveSpecs(check.paths);
