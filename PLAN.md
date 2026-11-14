@@ -199,6 +199,17 @@ Known limits of the hook, to state in the page's coverage notes:
 - It is a hand-written shell tokenizer, not a full parser. Unusual quoting or syntax it does not model could be misread in either direction.
 - The first full test run stalled once and never again in later runs; the cause was not found. Stray worker processes from that stopped run are the likely reason, but an intermittent hang in the tokenizer is not ruled out.
 
+- Phase 5: done. `index.html` and `src/app/` are the page: plain TypeScript and DOM, built with Vite, no framework. `npm run dev` serves it, `npm run build` writes `dist/`. Checked in a browser: the Essentials preset, an item that needs input, a pasted Windows path, the generated settings, and state surviving a reload.
+
+Phase 5 notes:
+
+- State (setup, selections, typed details) is kept in the browser's `localStorage` only. There is no shareable link yet.
+- List inputs are one entry per line, not comma-separated, because paths can contain commas.
+- The hook script is bundled into the page as text and offered as a download next to the generated rules file.
+- Output order follows the catalog, not the order boxes were ticked, so the same choices always give the same file.
+- The dev server uses port 5391; 5173 was already taken on this machine.
+- No design work, per the brief: system font, minimal CSS.
+
 Design choices made while writing the catalog, which phase 4 must honor:
 
 - The hook re-applies every command pattern of an item to the normalized command. So `/usr/bin/printenv` and `bash -c 'printenv'` are caught without a separate check per item.
