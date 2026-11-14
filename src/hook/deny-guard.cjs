@@ -895,6 +895,6 @@ function main() {
   }
 }
 
-module.exports = { evaluate, analyze, tokenize, parseCommands, matchPattern, globToRegExp, resolvePath, normPath };
+module.exports = { evaluate, analyze, tokenize, parseCommands, matchPattern, globToRegExp, resolvePath, normPath, positionals, PS_ALIASES };
 
 if (require.main === module) main();

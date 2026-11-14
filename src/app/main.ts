@@ -2,6 +2,7 @@ import { catalog, categories } from '../catalog';
 import type { CatalogItem, InputDef, Mode } from '../catalog/schema';
 import { generate, type GenerateResult, type Os, type Shell } from '../generator/generate';
 import guardSource from '../hook/deny-guard.cjs?raw';
+import { assumeHome, loadGuard, simulate, type Call, type SimContext } from '../simulator/simulate';
 import {
   applyPreset,
   defaultShells,
@@ -37,11 +38,14 @@ const state: AppState = loadState(localStorage, initialState(guessOs(navigator.p
 
 const detailsEl = h('section');
 const outputEl = h('section');
+const testerResultEl = h('div');
+const guard = loadGuard(guardSource);
 
 function changed(rerenderDetails = false): void {
   saveState(state, localStorage);
   if (rerenderDetails) renderDetails();
   renderOutput();
+  renderTesterResult();
 }
 
 // ------------------------------------------------------------ 1. environment
@@ -536,6 +540,159 @@ function renderOutput(): void {
   outputEl.append(h('details', {}, h('summary', {}, 'Which selection produced each rule'), table));
 }
 
-app.append(renderEnvironment(), renderProtections(), detailsEl, outputEl);
+// ----------------------------------------------------------------- 5. tester
+
+/** Not saved: what is typed here is only ever used to show a result on this page. */
+const tester = { kind: 'shell' as 'shell' | 'Read' | 'Edit' | 'WebFetch' | 'Mcp', shell: 'Bash' as 'Bash' | 'PowerShell', text: '', branch: 'feature-branch' };
+
+const TESTER_KINDS: { id: (typeof tester)['kind']; label: string; placeholder: string }[] = [
+  { id: 'shell', label: 'Run a shell command', placeholder: 'git -C . push --force' },
+  { id: 'Read', label: 'Read a file', placeholder: '~/.ssh/id_rsa' },
+  { id: 'Edit', label: 'Edit or write a file', placeholder: '.claude/settings.json' },
+  { id: 'WebFetch', label: 'Fetch a web page', placeholder: 'https://pastebin.com/raw/abc' },
+  { id: 'Mcp', label: 'Call an MCP tool', placeholder: 'mcp__slack__send_message' },
+];
+
+/** Stand-in folders. The tester cannot know the real ones, and the rules do not depend on them. */
+function testerContext(): SimContext {
+  const win = state.env.os === 'windows';
+  return {
+    win,
+    home: win ? 'C:\\Users\\you' : '/home/you',
+    projectDir: win ? 'C:\\Users\\you\\project' : '/home/you/project',
+    tmpDirs: win ? ['C:\\Users\\you\\AppData\\Local\\Temp'] : ['/tmp', '/var/tmp'],
+    currentBranch: tester.branch.trim() || null,
+    scope: state.env.scope,
+  };
+}
+
+function renderTesterResult(): void {
+  testerResultEl.replaceChildren();
+  const text = tester.text.trim();
+  const selections = toSelections(state.selected);
+  if (!text) return;
+  if (selections.length === 0) {
+    testerResultEl.append(h('p', { class: 'muted' }, 'Select something in step 2 first.'));
+    return;
+  }
+  const inputs = toInputValues(state.inputs);
+  const result = generate({ env: state.env, selections, inputs });
+  const hookOn = state.env.hook !== false;
+  // Always work out what the hook would do, so the result can say what turning it on would add.
+  const hookRules = (hookOn ? result : generate({ env: { ...state.env, hook: true }, selections, inputs })).hook?.rules;
+
+  const call: Call = tester.kind === 'shell' ? { tool: tester.shell, input: assumeHome(text) } : { tool: tester.kind, input: tester.kind === 'Read' || tester.kind === 'Edit' ? assumeHome(text) : text };
+  let sim;
+  try {
+    sim = simulate(call, result.rules, hookRules, guard, testerContext());
+  } catch (err) {
+    testerResultEl.append(h('p', { class: 'skipped' }, `Could not analyze that: ${err instanceof Error ? err.message : String(err)}`));
+    return;
+  }
+
+  const title = (id: string) => catalog.find((i) => i.id === id)?.title ?? id;
+  const hookDecision = hookOn ? sim.hookDecision : 'allow';
+  const decision = sim.ruleDecision === 'deny' || hookDecision === 'deny' ? 'deny' : sim.ruleDecision === 'ask' || hookDecision === 'ask' ? 'ask' : 'allow';
+  const verdict =
+    decision === 'deny' ? 'Blocked.' : decision === 'ask' ? 'Claude will ask you before doing this.' : 'Not stopped. Nothing you selected catches this.';
+  testerResultEl.append(h('p', {}, h('strong', { class: decision === 'allow' ? 'skipped' : '' }, verdict)));
+
+  if (sim.ruleHits.length > 0) {
+    const list = h('ul');
+    for (const hit of sim.ruleHits) {
+      list.append(
+        h('li', {}, h('code', {}, hit.rule), ` (${hit.mode === 'deny' ? 'block' : 'ask'}) from "${hit.items.map(title).join('", "')}"`, hit.via ? `, because ${hit.via}` : ''),
+      );
+    }
+    testerResultEl.append(h('p', {}, 'Rules that match:'), list);
+  } else {
+    testerResultEl.append(h('p', {}, 'No rule matches.'));
+  }
+
+  if (call.tool === 'Bash' || call.tool === 'PowerShell') {
+    if (sim.hookHits.length > 0) {
+      const list = h('ul');
+      for (const hit of sim.hookHits) list.append(h('li', {}, `"${hit.title}" (${hit.mode === 'deny' ? 'block' : 'ask'}): ${hit.reason}`));
+      const heading = hookOn
+        ? 'The hook catches it:'
+        : sim.ruleDecision !== 'allow'
+          ? 'The hook would catch it too. It is off, and the rules already cover this:'
+          : h('span', {}, h('strong', {}, 'Only the hook would catch this, and it is off. '), 'Switch to "Rules plus hook" in step 1 to add it:');
+      testerResultEl.append(h('p', {}, heading), list);
+    } else {
+      const none = hookOn ? 'The hook does not catch it.' : sim.ruleDecision !== 'allow' ? 'The hook would add nothing here.' : 'The hook would not catch it either.';
+      testerResultEl.append(h('p', {}, none));
+    }
+  } else {
+    testerResultEl.append(h('p', { class: 'muted' }, 'The hook only looks at shell commands, so it plays no part here.'));
+  }
+}
+
+function renderTester(): HTMLElement {
+  const input = h('input', {
+    type: 'text',
+    spellcheck: false,
+    oninput: () => {
+      tester.text = input.value;
+      renderTesterResult();
+    },
+  });
+  input.style.width = '100%';
+  input.style.fontFamily = 'ui-monospace, monospace';
+
+  const shellSelect = h(
+    'select',
+    {
+      onchange: () => {
+        tester.shell = shellSelect.value as typeof tester.shell;
+        renderTesterResult();
+      },
+    },
+    h('option', { value: 'Bash' }, 'in Bash'),
+    h('option', { value: 'PowerShell' }, 'in PowerShell'),
+  );
+  const branch = h('input', {
+    type: 'text',
+    value: tester.branch,
+    size: 16,
+    oninput: () => {
+      tester.branch = branch.value;
+      renderTesterResult();
+    },
+  });
+  const shellOptions = h('span', {}, ' ', shellSelect, ' while on git branch ', branch);
+
+  const kindSelect = h('select', {
+    onchange: () => {
+      tester.kind = kindSelect.value as typeof tester.kind;
+      sync();
+      renderTesterResult();
+    },
+  });
+  for (const k of TESTER_KINDS) kindSelect.append(h('option', { value: k.id }, k.label));
+  const sync = () => {
+    input.placeholder = TESTER_KINDS.find((k) => k.id === tester.kind)!.placeholder;
+    shellOptions.hidden = tester.kind !== 'shell';
+  };
+  sync();
+
+  return h(
+    'section',
+    {},
+    h('h2', {}, '5. Try it'),
+    h('p', { class: 'muted' }, 'Type something Claude might do and see whether your selections would stop it, and which rule does.'),
+    h('div', { class: 'row' }, h('label', {}, 'Claude tries to: ', kindSelect), shellOptions),
+    input,
+    testerResultEl,
+    h(
+      'p',
+      { class: 'muted' },
+      'This follows the matching behaviour Claude Code documents; it is not Claude Code itself, so a real session is the final word. ',
+      'Paths are judged as if the project is your current folder. A path under your home folder can be typed as ~/... or in full.',
+    ),
+  );
+}
+
+app.append(renderEnvironment(), renderProtections(), detailsEl, outputEl, renderTester());
 renderDetails();
 renderOutput();

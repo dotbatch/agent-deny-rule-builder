@@ -344,7 +344,7 @@ export const secrets: CatalogItem[] = [
       { tool: 'Bash', input: 'cat /proc/self/environ', expect: 'block', by: 'hook' },
       { tool: 'PowerShell', input: 'Get-ChildItem Env:', expect: 'block', by: 'rule' },
       { tool: 'PowerShell', input: 'dir Env:', expect: 'block', by: 'rule' },
-      { tool: 'PowerShell', input: 'gci env: | Out-String', expect: 'block', by: 'hook' },
+      { tool: 'PowerShell', input: 'gci env: | Out-String', expect: 'block', by: 'rule' },
       { tool: 'Bash', input: 'env NODE_ENV=test npm test', expect: 'allow' },
       { tool: 'Bash', input: 'gh auth status', expect: 'allow' },
       { tool: 'Bash', input: 'echo $AWS_SECRET_ACCESS_KEY', expect: 'allow', gap: true },

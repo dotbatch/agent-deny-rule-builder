@@ -216,6 +216,14 @@ Phase 5 notes:
   - An item that works only through the hook in the current setup (recursive delete on PowerShell-only) is marked skipped with that reason when the hook is off.
   - The generator's own default stays hook-on when the field is omitted; the page sets it off explicitly.
 
+- Phase 6: done. `src/simulator/simulate.ts` predicts what the generated rules and hook do to one tool call, and the page has a "5. Try it" box that uses it.
+  - **Rules half** follows the documented behaviour: wildcard forms, compound splitting and substitutions, control-flow bodies, the fixed wrapper list, leading assignments, PowerShell alias and case handling, path anchors (`//`, `~/`, `/`, relative), bare names at any depth, `!` carve-outs, Read rules blocking edits, the five recognised file commands (`cat`, `head`, `tail`, `sed`, `tee`) and redirect targets, domain wildcards, and MCP server or tool names.
+  - **Hook half** runs the real hook script. The page evaluates the same source text it offers for download, so the tester exercises the file the user installs.
+  - **Proof for the catalog.** Every one of the 198 catalog test cases is now run with only its item enabled: a case marked "by rule" must be stopped by the rules alone, a case marked "by hook" must not be stopped by rules and must be stopped by the hook, and an "allow" case must be stopped by neither. One mislabelled case was found and corrected. This is what backs the "only the hook stops these" examples on the page.
+  - **The tester always works out what the hook would do,** even when it is off, so it can say "only the hook would catch this".
+  - **Stand-in folders.** The tester cannot know the user's real home or project path, so it uses placeholders and rewrites a typed path under a typical home folder (`C:\Users\name\...`, `/home/name/...`) to `~/...`.
+  - **Limits.** It is our reading of the docs, not Claude Code's matcher; a real session is still the final word. PowerShell file cmdlets are not held to path rules in the simulator because the docs do not say they are.
+
 Design choices made while writing the catalog, which phase 4 must honor:
 
 - The hook re-applies every command pattern of an item to the normalized command. So `/usr/bin/printenv` and `bash -c 'printenv'` are caught without a separate check per item.
