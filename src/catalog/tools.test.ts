@@ -22,6 +22,8 @@ describe('tool list', () => {
     expect(commandTool('Remove-AzResourceGroup -Name rg')).toBe('azure');
     expect(commandTool('/usr/bin/dropdb app')).toBe('postgres');
     expect(commandTool('npx prisma migrate reset')).toBe('prisma');
+    expect(commandTool('./mvnw help:effective-settings')).toBe('maven');
+    expect(commandTool('mvn.cmd clean')).toBe('maven');
     expect(commandTool('php artisan db:wipe')).toBe('laravel');
     expect(commandTool('git push --force')).toBeUndefined();
   });
@@ -68,6 +70,15 @@ describe('picking tools', () => {
     expect(r.rules).toEqual([]);
     expect(r.hook).toBeUndefined();
     expect(r.items[0]!.skipped).toBe('None of the tools you picked use this.');
+  });
+
+  it('Maven: the settings file is blocked whatever is picked, the print command only with Maven', () => {
+    const sel = [{ id: 'secrets.maven-settings' }];
+    const withMaven = generate({ env: { ...env, tools: ['maven'] }, selections: sel }).rules.map((x) => x.rule);
+    const withoutMaven = generate({ env: { ...env, tools: ['aws'] }, selections: sel }).rules.map((x) => x.rule);
+    expect(withMaven).toContain('Bash(mvn help:effective-settings *)');
+    expect(withoutMaven.some((x) => x.includes('effective-settings'))).toBe(false);
+    expect(withoutMaven.some((x) => x.includes('.m2/settings.xml'))).toBe(true);
   });
 
   it('the Azure subscription check is left out when Azure is not picked', () => {

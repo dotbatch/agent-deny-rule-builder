@@ -12,6 +12,7 @@ export const toolGroups = [
   { id: 'data', title: 'Databases' },
   { id: 'migrations', title: 'Migration tools' },
   { id: 'containers', title: 'Containers' },
+  { id: 'build', title: 'Build tools' },
 ] as const;
 
 export type ToolGroup = (typeof toolGroups)[number]['id'];
@@ -50,6 +51,7 @@ export const tools = [
   { id: 'efcore', label: 'EF Core', group: 'migrations', hint: 'dotnet ef' },
   { id: 'docker', label: 'Docker', group: 'containers', hint: 'docker and docker compose' },
   { id: 'podman', label: 'Podman', group: 'containers', hint: 'podman' },
+  { id: 'maven', label: 'Maven', group: 'build', hint: 'mvn and mvnw' },
 ] as const satisfies readonly { id: string; label: string; group: ToolGroup; hint: string }[];
 
 export type ToolId = (typeof tools)[number]['id'];
@@ -129,6 +131,8 @@ const PROGRAMS: Record<string, ToolId> = {
   'docker-compose': 'docker',
   podman: 'podman',
   'podman-compose': 'podman',
+  mvn: 'maven',
+  mvnw: 'maven',
 };
 
 /** The tool an example command runs, judged from its first word. Undefined when it is not tool-specific. */

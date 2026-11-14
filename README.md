@@ -141,6 +141,7 @@ The hook needs Node.js on your `PATH`. Download the rules file again whenever yo
 | Cloud and cluster credentials | Stored logins for AWS, Google Cloud, Azure, Kubernetes, Docker and the GitHub CLI | Block | ✓ |
 | Commands that print secrets | Dumping every environment variable, and CLI commands whose output is a token | Block | ✓ |
 | Package registry tokens and GPG keys | Publish tokens for npm, PyPI, crates.io and RubyGems, netrc logins, the GPG keyring | Block | |
+| Maven settings with repository tokens | `~/.m2/settings.xml` and `settings-security.xml`, and `mvn help:effective-settings` which prints them merged | Block | |
 | Key and certificate files in the project | Private key, keystore and service-account files, by name | Block | |
 | Your own secret files and folders | The paths you list | Block | |
 | Shell history and browser profiles | Command history files and browser profile folders | Block | |
