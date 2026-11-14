@@ -10,6 +10,7 @@ import {
   initialState,
   loadState,
   neededInputs,
+  parseList,
   presets,
   saveState,
   toInputValues,
@@ -18,17 +19,20 @@ import {
 } from './state';
 
 type Child = Node | string | null | undefined | false;
+type Attrs = { [k: `aria-${string}`]: string; [k: `data-${string}`]: string };
 
 /** Tiny DOM builder. Text always goes in as text nodes, never as HTML. */
 function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> & { class?: string } = {},
+  props: Partial<HTMLElementTagNameMap[K]> & { class?: string } & Attrs = {},
   ...children: Child[]
 ): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);
-  const { class: className, ...rest } = props;
-  if (className) el.className = className;
-  Object.assign(el, rest);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === 'class') el.className = String(value);
+    else if (key === 'role' || key.startsWith('aria-') || key.startsWith('data-')) el.setAttribute(key, String(value));
+    else (el as unknown as Record<string, unknown>)[key] = value;
+  }
   for (const c of children) if (c) el.append(c);
   return el;
 }
@@ -36,9 +40,9 @@ function h<K extends keyof HTMLElementTagNameMap>(
 const app = document.getElementById('app')!;
 const state: AppState = loadState(localStorage, initialState(guessOs(navigator.platform)));
 
-const detailsEl = h('section');
-const outputEl = h('section');
-const testerResultEl = h('div');
+const detailsBody = h('div', { class: 'step-body' });
+const outputBody = h('div', { class: 'step-body' });
+const testerResultEl = h('div', { class: 'tester-result', 'aria-live': 'polite' });
 const guard = loadGuard(guardSource);
 
 function changed(rerenderDetails = false): void {
@@ -46,37 +50,126 @@ function changed(rerenderDetails = false): void {
   if (rerenderDetails) renderDetails();
   renderOutput();
   renderTesterResult();
+  syncNav();
+}
+
+// ------------------------------------------------------------ shared pieces
+
+const STEPS = [
+  { id: 'setup', label: 'Setup' },
+  { id: 'protect', label: 'Protect' },
+  { id: 'details', label: 'Details' },
+  { id: 'rules', label: 'Rules' },
+  { id: 'try', label: 'Try it' },
+] as const;
+type StepId = (typeof STEPS)[number]['id'];
+
+function step(id: StepId, title: string, lead: string, ...body: Child[]): HTMLElement {
+  const n = STEPS.findIndex((s) => s.id === id) + 1;
+  return h(
+    'section',
+    { id, class: 'step' },
+    h('header', { class: 'step-head' }, h('span', { class: 'step-num', 'aria-hidden': 'true' }, String(n)), h('div', {}, h('h2', {}, title), h('p', { class: 'lead' }, lead))),
+    ...body,
+  );
+}
+
+let segCount = 0;
+
+/** A row of mutually exclusive choices, built on real radio inputs so the keyboard works as usual. */
+function segmented<T extends string>(label: string, options: readonly (readonly [T, string])[], value: T, onChange: (value: T) => void, small = false) {
+  const name = `seg-${segCount++}`;
+  const inputs = new Map<T, HTMLInputElement>();
+  const el = h('div', { class: small ? 'seg small' : 'seg', role: 'radiogroup', 'aria-label': label });
+  for (const [v, text] of options) {
+    const input = h('input', { type: 'radio', name, checked: v === value, onchange: () => onChange(v) });
+    inputs.set(v, input);
+    el.append(h('label', {}, input, h('span', {}, text)));
+  }
+  return {
+    el,
+    set(v: T) {
+      for (const [k, input] of inputs) input.checked = k === v;
+    },
+    disable(disabled: boolean) {
+      for (const input of inputs.values()) input.disabled = disabled;
+      el.classList.toggle('disabled', disabled);
+    },
+  };
+}
+
+function field(label: string, control: Child, note?: Child): HTMLElement {
+  return h('div', { class: 'field' }, h('div', { class: 'field-label' }, label), h('div', { class: 'field-control' }, control, note ? h('div', { class: 'field-note' }, note) : null));
+}
+
+/** Which collapsible sections are open, so re-rendering the output does not close what the user opened. */
+const openSections = new Set<string>();
+
+function disclosure(key: string, summary: Child[], ...body: Child[]): HTMLDetailsElement {
+  const el = h('details', { class: 'disclosure', open: openSections.has(key) }, h('summary', {}, ...summary), h('div', { class: 'disclosure-body' }, ...body));
+  el.addEventListener('toggle', () => (el.open ? openSections.add(key) : openSections.delete(key)));
+  return el;
+}
+
+const toastEl = h('div', { class: 'toast', role: 'status' });
+let toastTimer: number | undefined;
+
+function hideToast(): void {
+  window.clearTimeout(toastTimer);
+  toastEl.classList.remove('show');
+}
+
+function toast(message: string, actionLabel: string, action: () => void): void {
+  hideToast();
+  toastEl.replaceChildren(
+    h('span', {}, message),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'link',
+        onclick: () => {
+          action();
+          hideToast();
+        },
+      },
+      actionLabel,
+    ),
+  );
+  toastEl.classList.add('show');
+  toastTimer = window.setTimeout(hideToast, 7000);
 }
 
 // ------------------------------------------------------------ 1. environment
 
 function renderEnvironment(): HTMLElement {
-  const section = h('section', {}, h('h2', {}, '1. Your setup'));
-
-  const sandboxSelect = h('select', {
-    onchange: () => {
-      state.env.sandbox = sandboxSelect.value as AppState['env']['sandbox'];
+  const sandboxNote = h('span');
+  const sandbox = segmented(
+    'Sandbox',
+    [
+      ['off', 'Off'],
+      ['on', 'On'],
+      ['strict', 'Strict'],
+    ] as const,
+    state.env.sandbox,
+    (value) => {
+      state.env.sandbox = value;
+      syncSandbox();
       changed();
     },
-  });
-  for (const [value, label] of [
-    ['off', 'Off'],
-    ['on', 'On'],
-    ['strict', 'On, strict (refuse to run without it)'],
-  ] as const) {
-    sandboxSelect.append(h('option', { value, selected: state.env.sandbox === value }, label));
-  }
-  const sandboxNote = h('span', { class: 'muted' });
+  );
   const syncSandbox = () => {
     const windows = state.env.os === 'windows';
-    sandboxSelect.disabled = windows;
+    sandbox.disable(windows);
     sandboxNote.textContent = windows
-      ? ' Not available on native Windows. Run Claude Code in WSL2 to get it.'
-      : ' Holds shell commands, and the programs they start, to your path and domain rules.';
+      ? 'Not available on native Windows. Run Claude Code in WSL2 to get it.'
+      : state.env.sandbox === 'strict'
+        ? 'Holds shell commands, and the programs they start, to your path and domain rules. Strict refuses to run without it.'
+        : 'Holds shell commands, and the programs they start, to your path and domain rules.';
   };
 
   const shellBoxes = new Map<Shell, HTMLInputElement>();
-  const shellRow = h('div', { class: 'row' }, 'Shell tools Claude has:');
+  const shellRow = h('div', { class: 'chips', role: 'group', 'aria-label': 'Shell tools Claude has' });
   for (const [shell, label] of [
     ['bash', 'Bash'],
     ['powershell', 'PowerShell'],
@@ -90,59 +183,65 @@ function renderEnvironment(): HTMLElement {
       },
     });
     shellBoxes.set(shell, box);
-    shellRow.append(h('label', {}, box, ` ${label}`));
+    shellRow.append(h('label', { class: 'chip' }, box, h('span', {}, label)));
   }
 
-  const osSelect = h('select', {
-    onchange: () => {
-      state.env.os = osSelect.value as Os;
-      state.env.shells = defaultShells(state.env.os);
+  const os = segmented(
+    'Operating system',
+    [
+      ['windows', 'Windows'],
+      ['macos', 'macOS'],
+      ['linux', 'Linux'],
+      ['wsl', 'WSL2'],
+    ] as const,
+    state.env.os,
+    (value: Os) => {
+      state.env.os = value;
+      state.env.shells = defaultShells(value);
       for (const [shell, box] of shellBoxes) box.checked = state.env.shells.includes(shell);
       syncSandbox();
       changed();
     },
-  });
-  for (const [value, label] of [
-    ['windows', 'Windows'],
-    ['macos', 'macOS'],
-    ['linux', 'Linux'],
-    ['wsl', 'Windows with WSL2'],
-  ] as const) {
-    osSelect.append(h('option', { value, selected: state.env.os === value }, label));
-  }
+  );
 
-  const scopeRow = h('div', { class: 'row' }, 'Where the rules will live:');
-  for (const [value, label] of [
-    ['project', 'This project (.claude/settings.json, shared with the team through git)'],
-    ['user', 'All my projects (~/.claude/settings.json)'],
-  ] as const) {
-    scopeRow.append(
-      h(
-        'label',
-        {},
-        h('input', {
-          type: 'radio',
-          name: 'scope',
-          checked: state.env.scope === value,
-          onchange: () => {
-            state.env.scope = value;
-            changed();
-          },
-        }),
-        ` ${label}`,
-      ),
+  const scopeNote = h('span');
+  const syncScope = () => {
+    scopeNote.replaceChildren(
+      ...(state.env.scope === 'project'
+        ? [h('code', {}, '.claude/settings.json'), ' in this project, shared with the team through git.']
+        : [h('code', {}, '~/.claude/settings.json'), ', applied to every project on this machine.']),
     );
-  }
+  };
+  const scope = segmented(
+    'Where the rules will live',
+    [
+      ['project', 'This project'],
+      ['user', 'All my projects'],
+    ] as const,
+    state.env.scope,
+    (value) => {
+      state.env.scope = value;
+      syncScope();
+      changed();
+    },
+  );
 
   syncSandbox();
-  section.append(
-    h('label', {}, 'Operating system: ', osSelect),
-    shellRow,
-    scopeRow,
-    h('label', {}, 'Sandbox: ', sandboxSelect, sandboxNote),
+  syncScope();
+  return step(
+    'setup',
+    'Your setup',
+    'Guessed from this browser. Change anything that is off.',
+    h(
+      'div',
+      { class: 'group' },
+      field('Operating system', os.el),
+      field('Shell tools Claude has', shellRow),
+      field('Where the rules live', scope.el, scopeNote),
+      field('Sandbox', sandbox.el, sandboxNote),
+    ),
     renderHookChoice(),
   );
-  return section;
 }
 
 function renderHookChoice(): HTMLElement {
@@ -154,22 +253,20 @@ function renderHookChoice(): HTMLElement {
       changed();
     },
   });
-  const failClosedLabel = h(
+  const failClosedRow = h(
     'label',
-    {},
+    { class: 'check-row' },
     failClosed,
-    ' Block the command if the hook itself fails ',
-    h('span', { class: 'muted' }, '(needs Claude Code v2.1.295 or later; untick on older versions)'),
+    h('span', {}, 'Block the command if the hook itself fails', h('span', { class: 'field-note' }, 'Needs Claude Code v2.1.295 or later. Untick on older versions.')),
   );
   const sync = () => {
-    failClosed.disabled = state.env.hook === false;
-    failClosedLabel.classList.toggle('muted', state.env.hook === false);
+    failClosedRow.hidden = state.env.hook === false;
   };
 
-  const choice = (value: boolean, title: string, summary: string) =>
+  const choice = (value: boolean, title: string, tag: string, summary: string) =>
     h(
       'label',
-      {},
+      { class: 'option' },
       h('input', {
         type: 'radio',
         name: 'hook',
@@ -180,16 +277,13 @@ function renderHookChoice(): HTMLElement {
           changed();
         },
       }),
-      ' ',
-      h('strong', {}, title),
-      ` ${summary}`,
+      h('span', { class: 'option-body' }, h('span', { class: 'option-title' }, title, h('span', { class: 'tag' }, tag)), h('span', { class: 'option-desc' }, summary)),
     );
 
   const li = (...c: Child[]) => h('li', {}, ...c);
-  const info = h(
-    'details',
-    {},
-    h('summary', {}, 'What is the difference?'),
+  const info = disclosure(
+    'hook-info',
+    ['What is the difference?'],
     h(
       'p',
       {},
@@ -239,115 +333,178 @@ function renderHookChoice(): HTMLElement {
       h('strong', {}, 'Neither one'),
       ' stops a script that Claude writes to disk and then runs, or what a program does once it is running. That is what the sandbox is for.',
     ),
-    h(
-      'p',
-      { class: 'muted' },
-      'Start with rules only if you are new to this. Step 4 lists, for each thing you selected, exactly what the hook would add.',
-    ),
+    h('p', { class: 'muted' }, 'Start with rules only if you are new to this. Step 4 lists, for each thing you selected, exactly what the hook would add.'),
   );
 
   sync();
   return h(
-    'fieldset',
-    {},
-    h('legend', {}, 'How strict'),
-    choice(false, 'Rules only.', 'One block of settings to paste. Nothing else to install.'),
-    choice(true, 'Rules plus hook.', 'For advanced users. Also catches commands written in unusual ways. Needs Node.js.'),
-    failClosedLabel,
+    'div',
+    { class: 'block' },
+    h('h3', {}, 'How strict'),
+    h(
+      'div',
+      { class: 'options', role: 'radiogroup', 'aria-label': 'How strict' },
+      choice(false, 'Rules only', 'Simplest', 'One block of settings to paste. Nothing else to install.'),
+      choice(true, 'Rules plus hook', 'Advanced', 'Also catches commands written in unusual ways. Needs Node.js.'),
+    ),
+    failClosedRow,
     info,
   );
 }
 
 // ------------------------------------------------------------ 2. protections
 
-const itemBoxes = new Map<string, { box: HTMLInputElement; mode: HTMLSelectElement; card: HTMLElement }>();
+interface ItemEls {
+  box: HTMLInputElement;
+  card: HTMLElement;
+  foot: HTMLElement;
+  setMode: (mode: Mode) => void;
+}
+const itemEls = new Map<string, ItemEls>();
+const presetButtons = new Map<string, HTMLButtonElement>();
+const categoryCounts = new Map<string, HTMLElement>();
+const selectionCount = h('span', { class: 'muted' });
+const clearButton = h('button', { type: 'button', class: 'link', onclick: () => replaceSelection({}, 'Selection cleared.') }, 'Clear all');
+
+function activePresetId(): string | null {
+  const count = Object.keys(state.selected).length;
+  if (count === 0) return null;
+  for (const preset of presets) {
+    const ids = new Set(preset.ids());
+    if (ids.size === count && [...ids].every((id) => id in state.selected)) return preset.id;
+  }
+  return null;
+}
 
 function syncItems(): void {
-  for (const [id, els] of itemBoxes) {
-    const on = id in state.selected;
+  for (const [id, els] of itemEls) {
+    const mode = state.selected[id];
+    const on = mode !== undefined;
     els.box.checked = on;
-    els.mode.disabled = !on;
-    els.mode.value = state.selected[id] ?? catalog.find((i) => i.id === id)!.defaultMode;
     els.card.classList.toggle('on', on);
+    els.foot.hidden = !on;
+    if (mode) els.setMode(mode);
+  }
+  const active = activePresetId();
+  for (const [id, button] of presetButtons) button.setAttribute('aria-pressed', String(id === active));
+  for (const category of categories) {
+    const items = catalog.filter((i) => i.category === category.id);
+    categoryCounts.get(category.id)!.textContent = `${items.filter((i) => i.id in state.selected).length} of ${items.length}`;
+  }
+  const count = Object.keys(state.selected).length;
+  selectionCount.textContent = count === 0 ? 'Nothing selected yet' : `${count} of ${catalog.length} selected`;
+  clearButton.hidden = count === 0;
+}
+
+/** Swaps the whole selection, and offers a way back if that threw away choices the user had made. */
+function replaceSelection(next: AppState['selected'], message: string): void {
+  const previous = state.selected;
+  state.selected = next;
+  syncItems();
+  changed(true);
+  if (Object.keys(previous).length > 0) {
+    toast(message, 'Undo', () => {
+      state.selected = previous;
+      syncItems();
+      changed(true);
+    });
   }
 }
 
 function renderItem(item: CatalogItem): HTMLElement {
+  let modeValue: Mode = item.defaultMode;
   const box = h('input', {
     type: 'checkbox',
+    class: 'check',
     onchange: () => {
-      if (box.checked) state.selected[item.id] = mode.value as Mode;
+      if (box.checked) state.selected[item.id] = modeValue;
       else delete state.selected[item.id];
       syncItems();
       changed(true);
     },
   });
-  const mode = h(
-    'select',
-    {
-      title: 'Block outright, or ask you each time',
-      onchange: () => {
-        if (item.id in state.selected) state.selected[item.id] = mode.value as Mode;
-        changed();
-      },
+  const mode = segmented(
+    `When Claude tries this: ${item.title}`,
+    [
+      ['deny', 'Block'],
+      ['ask', 'Ask me'],
+    ] as const,
+    modeValue,
+    (value: Mode) => {
+      modeValue = value;
+      if (item.id in state.selected) state.selected[item.id] = value;
+      changed();
     },
-    h('option', { value: 'deny' }, 'Block'),
-    h('option', { value: 'ask' }, 'Ask me'),
+    true,
+  );
+  const foot = h(
+    'div',
+    { class: 'item-foot' },
+    mode.el,
+    item.inputs?.length ? h('a', { class: 'item-needs', href: '#details' }, 'Needs details in step 3') : null,
   );
   const card = h(
     'div',
     { class: 'item' },
     h(
-      'div',
-      { class: 'item-head' },
-      h('label', {}, box, ` ${item.title}`, h('span', { class: `sev ${item.severity}` }, item.severity)),
-      mode,
+      'label',
+      { class: 'item-main' },
+      box,
+      h(
+        'span',
+        { class: 'item-text' },
+        h('span', { class: 'item-title' }, item.title, h('span', { class: `sev ${item.severity}` }, item.severity)),
+        h('span', { class: 'item-stops' }, item.stops),
+        h('span', { class: 'item-why' }, item.why),
+      ),
     ),
-    h('p', {}, item.stops),
-    h('p', { class: 'muted' }, item.why),
-    item.inputs?.length ? h('p', { class: 'muted' }, 'Asks for details in step 3.') : null,
+    foot,
   );
-  itemBoxes.set(item.id, { box, mode, card });
+  itemEls.set(item.id, {
+    box,
+    card,
+    foot,
+    setMode: (value) => {
+      modeValue = value;
+      mode.set(value);
+    },
+  });
   return card;
 }
 
-function presetHints(): HTMLElement {
-  const list = h('ul', { class: 'muted' });
-  for (const p of presets) if (p.id !== 'none') list.append(h('li', {}, h('strong', {}, `${p.label}: `), p.hint));
-  return h('details', {}, h('summary', {}, 'What each starting point includes'), list);
-}
-
 function renderProtections(): HTMLElement {
-  const section = h('section', {}, h('h2', {}, '2. What to protect'));
-  const presetRow = h('div', { class: 'row' }, 'Start from:');
+  const presetGrid = h('div', { class: 'presets' });
   for (const preset of presets) {
-    presetRow.append(
-      h(
-        'button',
-        {
-          type: 'button',
-          onclick: () => {
-            state.selected = applyPreset(preset.ids());
-            syncItems();
-            changed(true);
-          },
-        },
-        preset.label,
-      ),
+    if (preset.id === 'none') continue;
+    const button = h(
+      'button',
+      {
+        type: 'button',
+        class: 'preset',
+        'aria-pressed': 'false',
+        onclick: () => replaceSelection(applyPreset(preset.ids()), `Switched to ${preset.label}.`),
+      },
+      h('span', { class: 'preset-title' }, preset.label),
+      h('span', { class: 'preset-count' }, `${new Set(preset.ids()).size} protections`),
+      h('span', { class: 'preset-hint' }, preset.hint),
     );
+    presetButtons.set(preset.id, button);
+    presetGrid.append(button);
   }
-  section.append(
-    h(
-      'p',
-      { class: 'muted' },
-      'The test for each one: if Claude gets it wrong once, can you take it back? These are the things you cannot.',
-    ),
-    presetRow,
-    presetHints(),
+
+  const section = step(
+    'protect',
+    'What to protect',
+    'The test for each one: if Claude gets it wrong once, can you take it back? These are the things you cannot.',
+    h('div', { class: 'bar' }, h('h3', {}, 'Start from a preset, then adjust'), h('span', { class: 'bar-end' }, selectionCount, clearButton)),
+    presetGrid,
   );
   for (const category of categories) {
-    section.append(h('h3', {}, category.title), h('p', { class: 'muted' }, category.blurb));
-    for (const item of catalog.filter((i) => i.category === category.id)) section.append(renderItem(item));
+    const count = h('span', { class: 'count' });
+    categoryCounts.set(category.id, count);
+    const grid = h('div', { class: 'items' });
+    for (const item of catalog.filter((i) => i.category === category.id)) grid.append(renderItem(item));
+    section.append(h('div', { class: 'category-head' }, h('h3', {}, category.title, count), h('p', { class: 'muted' }, category.blurb)), grid);
   }
   syncItems();
   return section;
@@ -355,7 +512,12 @@ function renderProtections(): HTMLElement {
 
 // ---------------------------------------------------------------- 3. details
 
+const isMissing = (def: InputDef): boolean => def.kind !== 'boolean' && def.required === true && parseList(String(state.inputs[def.id] ?? '')).length === 0;
+
 function renderInput(def: InputDef): HTMLElement {
+  const usedBy = catalog.filter((i) => i.id in state.selected && i.inputs?.includes(def.id)).map((i) => i.title);
+  const usedByNote = h('span', { class: 'used-by' }, `Used by: ${usedBy.join(', ')}`);
+
   if (def.kind === 'boolean') {
     const box = h('input', {
       type: 'checkbox',
@@ -365,8 +527,10 @@ function renderInput(def: InputDef): HTMLElement {
         changed();
       },
     });
-    return h('label', {}, box, ` ${def.label} `, h('span', { class: 'muted' }, def.help));
+    return h('label', { class: 'check-row card' }, box, h('span', {}, def.label, h('span', { class: 'field-note' }, def.help), usedByNote));
   }
+
+  const missingNote = h('span', { class: 'missing-note' }, 'Required. The protections that use this are skipped until you fill it in.');
   const area = h('textarea', {
     rows: 3,
     value: typeof state.inputs[def.id] === 'string' ? (state.inputs[def.id] as string) : '',
@@ -374,27 +538,35 @@ function renderInput(def: InputDef): HTMLElement {
     spellcheck: false,
     oninput: () => {
       state.inputs[def.id] = area.value;
+      sync();
       changed();
     },
   });
-  return h(
+  const card = h(
     'label',
-    {},
-    h('strong', {}, def.label),
-    def.required ? ' (required)' : '',
-    h('div', { class: 'muted' }, `${def.help} One per line.`),
+    { class: 'input-card card' },
+    h('span', { class: 'input-title' }, def.label, def.required ? h('span', { class: 'tag' }, 'Required') : null),
+    h('span', { class: 'field-note' }, `${def.help} One per line.`),
     area,
+    missingNote,
+    usedByNote,
   );
+  const sync = () => {
+    const missing = isMissing(def);
+    card.classList.toggle('missing', missing);
+    missingNote.hidden = !missing;
+  };
+  sync();
+  return card;
 }
 
 function renderDetails(): void {
   const needed = neededInputs(state.selected);
-  detailsEl.replaceChildren(h('h2', {}, '3. Your details'));
   if (needed.length === 0) {
-    detailsEl.append(h('p', { class: 'muted' }, 'Nothing you have selected needs any details.'));
+    detailsBody.replaceChildren(h('p', { class: 'empty' }, 'Nothing you have selected needs any details.'));
     return;
   }
-  for (const def of needed) detailsEl.append(renderInput(def));
+  detailsBody.replaceChildren(...needed.map(renderInput));
 }
 
 // ----------------------------------------------------------------- 4. output
@@ -414,31 +586,39 @@ function fileBlock(title: string, destination: string, filename: string, text: s
     'button',
     {
       type: 'button',
+      class: 'btn primary',
       onclick: async () => {
         try {
           await navigator.clipboard.writeText(text);
           copy.textContent = 'Copied';
+          copy.classList.add('done');
         } catch {
           copy.textContent = 'Copy failed; select the text instead';
         }
-        setTimeout(() => (copy.textContent = 'Copy'), 2000);
+        setTimeout(() => {
+          copy.textContent = 'Copy';
+          copy.classList.remove('done');
+        }, 2000);
       },
     },
     'Copy',
   );
   return h(
     'div',
-    {},
-    h('h3', {}, title),
-    h('p', {}, 'Goes in ', h('code', {}, destination)),
-    h('div', {}, copy, h('button', { type: 'button', onclick: () => download(filename, text) }, `Download ${filename}`)),
-    collapsedNote === undefined ? h('pre', {}, text) : h('p', { class: 'muted' }, `${text.split('\n').length} lines. ${collapsedNote}`),
+    { class: 'file card' },
+    h(
+      'div',
+      { class: 'file-head' },
+      h('div', {}, h('h3', {}, title), h('p', { class: 'muted' }, 'Goes in ', h('code', {}, destination))),
+      h('div', { class: 'file-actions' }, copy, h('button', { type: 'button', class: 'btn', onclick: () => download(filename, text) }, `Download ${filename}`)),
+    ),
+    collapsedNote === undefined ? h('pre', { tabIndex: 0 }, text) : h('p', { class: 'file-note muted' }, `${text.split('\n').length} lines. ${collapsedNote}`),
   );
 }
 
 function installSteps(result: GenerateResult): HTMLElement {
   const base = state.env.scope === 'project' ? '.claude' : '~/.claude';
-  const steps = h('ol');
+  const steps = h('ol', { class: 'install' });
   steps.append(
     h(
       'li',
@@ -472,25 +652,49 @@ function hookExamples(commands: string[]): HTMLElement {
   return h('div', {}, h('p', {}, heading), list);
 }
 
+const stat = (value: string, label: string) => h('div', { class: 'stat' }, h('span', { class: 'stat-value' }, value), h('span', { class: 'stat-label' }, label));
+
+const starter = presets.find((p) => p.id === 'essentials')!;
+
 function renderOutput(): void {
-  outputEl.replaceChildren(h('h2', {}, '4. Your rules'));
+  const summary = document.getElementById('summary')!;
   const selections = toSelections(state.selected);
   if (selections.length === 0) {
-    outputEl.append(h('p', { class: 'muted' }, 'Select something in step 2 to see your rules here.'));
+    summary.textContent = 'No rules yet';
+    summary.classList.remove('has');
+    outputBody.replaceChildren(
+      h(
+        'div',
+        { class: 'empty' },
+        h('p', {}, h('strong', {}, 'Your rules appear here.')),
+        h('p', { class: 'muted' }, 'Select something in step 2, or begin with the usual set.'),
+        h('button', { type: 'button', class: 'btn primary', onclick: () => replaceSelection(applyPreset(starter.ids()), '') }, `Start with ${starter.label}`),
+      ),
+    );
     return;
   }
   const result = generate({ env: state.env, selections, inputs: toInputValues(state.inputs) });
   const { deny = [], ask = [] } = result.settings.permissions;
+  summary.textContent = `${deny.length} block · ${ask.length} ask`;
+  summary.classList.add('has');
 
-  outputEl.append(
-    h('p', {}, `${deny.length} block rules, ${ask.length} ask rules`, result.hook ? ', plus a hook.' : '.', result.settings.sandbox ? ' Sandbox on.' : ''),
-  );
+  const out: Child[] = [
+    h(
+      'div',
+      { class: 'stats' },
+      stat(String(deny.length), 'block rules'),
+      stat(String(ask.length), 'ask rules'),
+      stat(result.hook ? 'On' : 'Off', 'hook'),
+      stat(result.settings.sandbox ? 'On' : 'Off', 'sandbox'),
+    ),
+  ];
+
   const hookWouldHelp = result.items.filter((i) => i.hookOnly.length > 0);
   if (state.env.hook === false && hookWouldHelp.length > 0) {
-    outputEl.append(
+    out.push(
       h(
         'p',
-        {},
+        { class: 'callout' },
         h('strong', {}, 'Rules only. '),
         `The hook would catch more for ${hookWouldHelp.length} of your ${result.items.length} selections; each one below shows examples. Switch to "Rules plus hook" in step 1 to add it.`,
       ),
@@ -498,10 +702,10 @@ function renderOutput(): void {
   }
   const infraCount = result.items.filter((i) => i.id.startsWith('infra.')).length;
   if (infraCount >= 3) {
-    outputEl.append(
+    out.push(
       h(
         'p',
-        {},
+        { class: 'callout' },
         h('strong', {}, 'Working with a lot of infrastructure? '),
         `You selected ${infraCount} infrastructure items. These cover the common destructive commands, not every service. `,
         h('a', { href: 'https://github.com/Dicklesworthstone/destructive_command_guard', target: '_blank', rel: 'noopener noreferrer' }, 'destructive_command_guard'),
@@ -512,52 +716,49 @@ function renderOutput(): void {
   if (result.warnings.length > 0) {
     const list = h('ul');
     for (const w of result.warnings) list.append(h('li', {}, w));
-    outputEl.append(h('div', { class: 'warnings' }, h('strong', {}, 'Before you use this'), list));
+    out.push(h('div', { class: 'callout warn' }, h('strong', {}, 'Before you use this'), list));
   }
 
   const base = state.env.scope === 'project' ? '.claude' : '~/.claude';
-  outputEl.append(
-    fileBlock('Settings', `${base}/settings.json`, 'settings.fragment.json', JSON.stringify(result.settings, null, 2) + '\n'),
-  );
+  out.push(fileBlock('Settings', `${base}/settings.json`, 'settings.fragment.json', JSON.stringify(result.settings, null, 2) + '\n'));
   if (result.hook) {
     const root = result.hook.relativeTo === 'project' ? '' : '~/';
-    outputEl.append(
+    out.push(
       fileBlock('Hook rules', root + result.hook.rulesPath, 'deny-guard.rules.json', JSON.stringify(result.hook.rules, null, 2) + '\n', 'Built from your selections; download it again whenever you change them.'),
       fileBlock('Hook script', root + result.hook.scriptPath, 'deny-guard.cjs', guardSource, 'The same for everyone; it reads the rules file next to it.'),
     );
   }
-  outputEl.append(h('h3', {}, 'Install'), installSteps(result));
+  out.push(h('div', { class: 'block' }, h('h3', {}, 'Install'), installSteps(result)));
 
-  outputEl.append(
-    h('h3', {}, 'What still gets through'),
-    h('p', { class: 'muted' }, 'No rule set is complete. These are the known holes in what you selected.'),
-  );
+  const gapList = h('div', { class: 'group' });
   for (const item of result.items) {
     const gaps = h('ul');
     for (const g of item.gaps) gaps.append(h('li', {}, g));
-    outputEl.append(
-      h(
-        'details',
-        {},
-        h(
-          'summary',
-          {},
-          h('strong', {}, item.title),
-          ` (${item.mode === 'deny' ? 'block' : 'ask'}, ${item.rules} rules)`,
-          item.skipped ? h('span', { class: 'skipped' }, ` Skipped. ${item.skipped}`) : null,
-        ),
+    gapList.append(
+      disclosure(
+        `gap:${item.id}`,
+        [
+          h('span', { class: 'gap-title' }, item.title),
+          h('span', { class: 'tag' }, `${item.mode === 'deny' ? 'block' : 'ask'} · ${item.rules} rules`),
+          item.skipped ? h('span', { class: 'skipped' }, `Skipped. ${item.skipped}`) : null,
+        ],
         gaps,
         item.hookOnly.length > 0 ? hookExamples(item.hookOnly) : null,
         item.note ? h('p', { class: 'muted' }, item.note) : null,
       ),
     );
   }
+  out.push(
+    h('div', { class: 'block' }, h('h3', {}, 'What still gets through'), h('p', { class: 'muted' }, 'No rule set is complete. These are the known holes in what you selected.'), gapList),
+  );
 
   const table = h('table', {}, h('tr', {}, h('th', {}, 'Rule'), h('th', {}, 'Mode'), h('th', {}, 'From')));
   for (const r of result.rules) {
     table.append(h('tr', {}, h('td', {}, h('code', {}, r.rule)), h('td', {}, r.mode === 'deny' ? 'block' : 'ask'), h('td', {}, r.items.join(', '))));
   }
-  outputEl.append(h('details', {}, h('summary', {}, 'Which selection produced each rule'), table));
+  out.push(h('div', { class: 'group' }, disclosure('rule-table', ['Which selection produced each rule'], h('div', { class: 'table-wrap' }, table))));
+
+  outputBody.replaceChildren(...out.filter((c): c is Node | string => Boolean(c)));
 }
 
 // ----------------------------------------------------------------- 5. tester
@@ -566,10 +767,10 @@ function renderOutput(): void {
 const tester = { kind: 'shell' as 'shell' | 'Read' | 'Edit' | 'WebFetch' | 'Mcp', shell: 'Bash' as 'Bash' | 'PowerShell', text: '', branch: 'feature-branch' };
 
 const TESTER_KINDS: { id: (typeof tester)['kind']; label: string; placeholder: string }[] = [
-  { id: 'shell', label: 'Run a shell command', placeholder: 'git -C . push --force' },
+  { id: 'shell', label: 'Run a command', placeholder: 'git -C . push --force' },
   { id: 'Read', label: 'Read a file', placeholder: '~/.ssh/id_rsa' },
-  { id: 'Edit', label: 'Edit or write a file', placeholder: '.claude/settings.json' },
-  { id: 'WebFetch', label: 'Fetch a web page', placeholder: 'https://pastebin.com/raw/abc' },
+  { id: 'Edit', label: 'Edit a file', placeholder: '.claude/settings.json' },
+  { id: 'WebFetch', label: 'Fetch a page', placeholder: 'https://pastebin.com/raw/abc' },
   { id: 'Mcp', label: 'Call an MCP tool', placeholder: 'mcp__slack__send_message' },
 ];
 
@@ -606,7 +807,7 @@ function renderTesterResult(): void {
   try {
     sim = simulate(call, result.rules, hookRules, guard, testerContext());
   } catch (err) {
-    testerResultEl.append(h('p', { class: 'skipped' }, `Could not analyze that: ${err instanceof Error ? err.message : String(err)}`));
+    testerResultEl.append(h('p', { class: 'verdict bad' }, `Could not analyze that: ${err instanceof Error ? err.message : String(err)}`));
     return;
   }
 
@@ -615,7 +816,7 @@ function renderTesterResult(): void {
   const decision = sim.ruleDecision === 'deny' || hookDecision === 'deny' ? 'deny' : sim.ruleDecision === 'ask' || hookDecision === 'ask' ? 'ask' : 'allow';
   const verdict =
     decision === 'deny' ? 'Blocked.' : decision === 'ask' ? 'Claude will ask you before doing this.' : 'Not stopped. Nothing you selected catches this.';
-  testerResultEl.append(h('p', {}, h('strong', { class: decision === 'allow' ? 'skipped' : '' }, verdict)));
+  testerResultEl.append(h('p', { class: `verdict ${decision === 'deny' ? 'ok' : decision === 'ask' ? 'warn' : 'bad'}` }, h('strong', {}, verdict)));
 
   if (sim.ruleHits.length > 0) {
     const list = h('ul');
@@ -651,68 +852,132 @@ function renderTesterResult(): void {
 function renderTester(): HTMLElement {
   const input = h('input', {
     type: 'text',
+    class: 'tester-input',
     spellcheck: false,
+    autocapitalize: 'off',
+    'aria-label': 'What Claude tries',
     oninput: () => {
       tester.text = input.value;
       renderTesterResult();
     },
   });
-  input.style.width = '100%';
-  input.style.fontFamily = 'ui-monospace, monospace';
 
-  const shellSelect = h(
-    'select',
-    {
-      onchange: () => {
-        tester.shell = shellSelect.value as typeof tester.shell;
-        renderTesterResult();
-      },
+  const shell = segmented(
+    'Shell',
+    [
+      ['Bash', 'Bash'],
+      ['PowerShell', 'PowerShell'],
+    ] as const,
+    tester.shell,
+    (value) => {
+      tester.shell = value;
+      renderTesterResult();
     },
-    h('option', { value: 'Bash' }, 'in Bash'),
-    h('option', { value: 'PowerShell' }, 'in PowerShell'),
+    true,
   );
   const branch = h('input', {
     type: 'text',
+    class: 'branch-input',
     value: tester.branch,
     size: 16,
+    spellcheck: false,
     oninput: () => {
       tester.branch = branch.value;
       renderTesterResult();
     },
   });
-  const shellOptions = h('span', {}, ' ', shellSelect, ' while on git branch ', branch);
+  const shellOptions = h('div', { class: 'tester-options' }, 'in', shell.el, h('label', {}, 'on git branch ', branch));
 
-  const kindSelect = h('select', {
-    onchange: () => {
-      tester.kind = kindSelect.value as typeof tester.kind;
+  const example = h('button', {
+    type: 'button',
+    class: 'link',
+    onclick: () => {
+      input.value = tester.text = input.placeholder;
+      renderTesterResult();
+      input.focus();
+    },
+  });
+  const sync = () => {
+    input.placeholder = TESTER_KINDS.find((k) => k.id === tester.kind)!.placeholder;
+    example.replaceChildren('Try ', h('code', {}, input.placeholder));
+    shellOptions.hidden = tester.kind !== 'shell';
+  };
+  const kind = segmented(
+    'Claude tries to',
+    TESTER_KINDS.map((k) => [k.id, k.label] as const),
+    tester.kind,
+    (value) => {
+      tester.kind = value;
       sync();
       renderTesterResult();
     },
-  });
-  for (const k of TESTER_KINDS) kindSelect.append(h('option', { value: k.id }, k.label));
-  const sync = () => {
-    input.placeholder = TESTER_KINDS.find((k) => k.id === tester.kind)!.placeholder;
-    shellOptions.hidden = tester.kind !== 'shell';
-  };
+  );
   sync();
 
-  return h(
-    'section',
-    {},
-    h('h2', {}, '5. Try it'),
-    h('p', { class: 'muted' }, 'Type something Claude might do and see whether your selections would stop it, and which rule does.'),
-    h('div', { class: 'row' }, h('label', {}, 'Claude tries to: ', kindSelect), shellOptions),
-    input,
-    testerResultEl,
+  return step(
+    'try',
+    'Try it',
+    'Type something Claude might do and see whether your selections would stop it, and which rule does.',
+    h('div', { class: 'card tester' }, h('div', { class: 'field-label' }, 'Claude tries to'), kind.el, input, h('div', { class: 'tester-meta' }, shellOptions, example), testerResultEl),
     h(
       'p',
-      { class: 'muted' },
+      { class: 'muted fine' },
       'This follows the matching behaviour Claude Code documents; it is not Claude Code itself, so a real session is the final word. ',
       'Paths are judged as if the project is your current folder. A path under your home folder can be typed as ~/... or in full.',
     ),
   );
 }
 
-app.append(renderEnvironment(), renderProtections(), detailsEl, outputEl, renderTester());
+// ------------------------------------------------------------ step navigation
+
+const navLinks = new Map<StepId, { link: HTMLAnchorElement; badge: HTMLElement }>();
+
+function renderNav(): void {
+  const nav = document.getElementById('steps')!;
+  STEPS.forEach((s, i) => {
+    const badge = h('span', { class: 'badge', hidden: true });
+    const link = h('a', { href: `#${s.id}` }, h('span', { class: 'nav-num', 'aria-hidden': 'true' }, String(i + 1)), s.label, badge);
+    navLinks.set(s.id, { link, badge });
+    nav.append(link);
+  });
+  const spy = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        for (const [id, { link }] of navLinks) {
+          if (id === entry.target.id) link.setAttribute('aria-current', 'step');
+          else link.removeAttribute('aria-current');
+        }
+      }
+    },
+    { rootMargin: '-20% 0px -70% 0px' },
+  );
+  for (const s of STEPS) spy.observe(document.getElementById(s.id)!);
+}
+
+/** The bar shows how far along the user is: what is picked, and what still needs filling in. */
+function syncNav(): void {
+  const setBadge = (id: StepId, text: string, warn = false) => {
+    const { badge } = navLinks.get(id)!;
+    badge.hidden = text === '';
+    badge.textContent = text;
+    badge.classList.toggle('warn', warn);
+  };
+  const count = Object.keys(state.selected).length;
+  const missing = neededInputs(state.selected).filter(isMissing).length;
+  setBadge('protect', count > 0 ? String(count) : '');
+  setBadge('details', missing > 0 ? `${missing} to fill in` : '', true);
+}
+
+app.append(
+  renderEnvironment(),
+  renderProtections(),
+  step('details', 'Your details', 'The few things only you know, such as which branches and paths matter.', detailsBody),
+  step('rules', 'Your rules', 'Updated as you choose. Copy them in when you are happy.', outputBody),
+  renderTester(),
+);
+document.body.append(toastEl);
+renderNav();
 renderDetails();
 renderOutput();
+syncNav();
