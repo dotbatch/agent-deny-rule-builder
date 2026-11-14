@@ -1,5 +1,6 @@
 import { catalog as defaultCatalog, inputs as defaultInputs } from '../catalog';
 import type { CatalogItem, Condition, InputDef, Mode, PathRule, PathSpec } from '../catalog/schema';
+import { commandTool, itemApplies, toolOn, type ToolId } from '../catalog/tools';
 import { parseUserPath, permissionPath, type ResolvedPath, type Scope } from './paths';
 
 export type Os = 'windows' | 'macos' | 'linux' | 'wsl';
@@ -22,6 +23,11 @@ export interface Environment {
    * call. Defaults to true. Turn off for Claude Code older than v2.1.295.
    */
   hookFailClosed?: boolean;
+  /**
+   * Tools on this machine. Rules and checks tagged with a tool that is not in
+   * the list are left out. Empty or missing means every tool.
+   */
+  tools?: ToolId[];
 }
 
 export interface Selection {
@@ -75,7 +81,7 @@ export type ResolvedCheck =
   | { type: 'regex'; pattern: string; flags?: string; program?: string[]; message: string }
   | { type: 'touchesPath'; access: 'read' | 'write'; paths: ResolvedPath[]; except: string[]; message: string }
   | { type: 'mentionsDomain'; domains: string[]; message: string }
-  | { type: 'builtin'; name: string; message: string };
+  | { type: 'builtin'; name: string; values?: string[]; message: string };
 
 /** Contents of `deny-guard.rules.json`. */
 export interface HookRules {
@@ -182,6 +188,7 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
     return v === true;
   };
   const holds = (c?: Condition) => !c || flag(c.input) === c.equals;
+  const inPlay = (x: { when?: Condition; tool?: ToolId }) => holds(x.when) && toolOn(x.tool, env.tools);
 
   const hookEnabled = env.hook !== false;
   const sandboxAvailable = env.os !== 'windows';
@@ -255,7 +262,7 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
         case 'path':
           return pathRule(rule);
         case 'command': {
-          if (!holds(rule.when)) return [];
+          if (!inPlay(rule)) return [];
           const out: Emitted[] = [];
           const tools = [
             ['bash', 'Bash'],
@@ -296,13 +303,13 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
   const hookItem = (item: CatalogItem, mode: Mode): HookRules['items'][number] | null => {
     const patterns = { bash: [] as string[], powershell: [] as string[] };
     for (const rule of item.rules) {
-      if (rule.kind !== 'command' || !holds(rule.when)) continue;
+      if (rule.kind !== 'command' || !inPlay(rule)) continue;
       patterns.bash.push(...[...(rule.any ?? []), ...(rule.bash ?? [])].flatMap(expand));
       patterns.powershell.push(...[...(rule.any ?? []), ...(rule.powershell ?? [])].flatMap(expand));
     }
     const checks: ResolvedCheck[] = [];
     for (const check of item.hook ?? []) {
-      if (!holds(check.when)) continue;
+      if (!inPlay(check)) continue;
       const { message } = check;
       switch (check.type) {
         case 'argv':
@@ -330,7 +337,12 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
           break;
         }
         case 'builtin':
-          checks.push({ type: 'builtin', name: check.name, message });
+          if (check.input) {
+            const values = list(check.input);
+            if (values.length > 0) checks.push({ type: 'builtin', name: check.name, values, message });
+          } else {
+            checks.push({ type: 'builtin', name: check.name, message });
+          }
           break;
       }
     }
@@ -365,6 +377,7 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
       ? item.tests
           .filter((t) => t.expect === 'block' && t.by === 'hook')
           .filter((t) => env.shells.includes(t.tool === 'PowerShell' ? 'powershell' : 'bash'))
+          .filter((t) => toolOn(commandTool(t.input), env.tools))
           .map((t) => t.input)
       : [];
     for (const e of emitted) {
@@ -390,7 +403,9 @@ export function generate(input: GenerateInput, options: GenerateOptions = {}): G
     }
 
     let skipped: string | undefined;
-    if (missing.length > 0) {
+    if (!itemApplies(item, env.tools)) {
+      skipped = 'None of the tools you picked use this.';
+    } else if (missing.length > 0) {
       skipped = `Needs: ${missing.map((d) => d.label).join(', ')}.`;
       warn(`"${item.title}" was skipped. ${skipped}`);
     } else if (emitted.length === 0 && !forHook) {

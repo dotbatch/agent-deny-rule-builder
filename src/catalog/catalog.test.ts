@@ -40,7 +40,9 @@ function inputRefs(item: CatalogItem): { id: string; kinds: string[] }[] {
     cond(h.when);
     if (h.type === 'touchesPath' && h.exceptInput) refs.push({ id: h.exceptInput, kinds: ['filename-list'] });
     if (h.type === 'mentionsDomain') refs.push({ id: h.input, kinds: ['domain-list'] });
-    if (h.type === 'builtin' && h.name !== 'recursive-delete-outside-project') {
+    if (h.type === 'builtin' && h.input) {
+      refs.push({ id: h.input, kinds: ['string-list'] });
+    } else if (h.type === 'builtin' && h.name !== 'recursive-delete-outside-project') {
       refs.push({ id: 'protectedBranches', kinds: ['string-list'] });
     }
   };

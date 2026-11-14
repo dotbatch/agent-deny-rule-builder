@@ -1,4 +1,4 @@
-import { catalog, inputs as inputDefs } from '../catalog';
+import { catalog, inputs as inputDefs, itemApplies, toolIds, type ToolId } from '../catalog';
 import type { InputDef, Mode } from '../catalog/schema';
 import type { Environment, InputValues, Os, Selection, Shell } from '../generator/generate';
 
@@ -25,7 +25,7 @@ export function guessOs(platform: string): Os {
 export function initialState(os: Os): AppState {
   const state: AppState = {
     // Rules only by default: pasting JSON is the simpler install. The hook is opt-in.
-    env: { os, shells: defaultShells(os), scope: 'project', sandbox: 'off', hook: false, hookFailClosed: true },
+    env: { os, shells: defaultShells(os), scope: 'project', sandbox: 'off', hook: false, hookFailClosed: true, tools: [] },
     selected: {},
     inputs: {},
   };
@@ -89,6 +89,12 @@ export const presets: { id: string; label: string; hint: string; ids: () => stri
   { id: 'none', label: 'Clear', hint: 'Untick everything.', ids: () => [] },
 ];
 
+/** A preset's items, minus any that none of the picked tools use. */
+export function presetIds(preset: (typeof presets)[number], tools: readonly ToolId[] = []): string[] {
+  const ids = new Set(preset.ids());
+  return catalog.filter((i) => ids.has(i.id) && itemApplies(i, tools)).map((i) => i.id);
+}
+
 export function applyPreset(ids: string[]): AppState['selected'] {
   const out: AppState['selected'] = {};
   for (const item of catalog) if (ids.includes(item.id)) out[item.id] = item.defaultMode;
@@ -116,8 +122,10 @@ export function loadState(storage: Pick<Storage, 'getItem'>, fallback: AppState)
     for (const [id, mode] of Object.entries(saved.selected ?? {})) {
       if (known.has(id) && (mode === 'deny' || mode === 'ask')) selected[id] = mode;
     }
+    const knownTools = new Set<string>(toolIds);
+    const tools = (Array.isArray(saved.env?.tools) ? saved.env.tools : []).filter((t): t is ToolId => knownTools.has(t));
     return {
-      env: { ...fallback.env, ...(saved.env ?? {}) },
+      env: { ...fallback.env, ...(saved.env ?? {}), tools },
       selected,
       inputs: { ...fallback.inputs, ...(saved.inputs ?? {}) },
     };

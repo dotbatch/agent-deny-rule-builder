@@ -104,7 +104,7 @@ npm run dev
 
 Open the address Vite prints, then:
 
-1. **Describe your setup.** Operating system, which shell tools Claude has, and whether the rules are for this project or all your projects.
+1. **Describe your setup.** Operating system, which shell tools Claude has, which clouds, clusters and databases you use, and whether the rules are for this project or all your projects.
 2. **Choose what to protect.** Start from a preset or tick items one by one. Each item can block outright or ask first.
 3. **Fill in your details.** Only the inputs your selection needs are shown.
 4. **Copy or download the output** and merge it into the settings file named above each block.
@@ -180,13 +180,17 @@ The hook needs Node.js on your `PATH`. Download the rules file again whenever yo
 
 | Item | What it stops | Default | Essentials |
 | :- | :- | :-: | :-: |
-| Anything aimed at production | Any shell command that contains one of the production names you list | Ask | |
+| Anything aimed at production | Any shell command that contains one of the production names you list, and, with the hook, any `az` command while your default Azure subscription is one of them | Ask | |
 | Dropping and resetting databases | Drop, truncate and flush commands, and the reset commands of common migration tools | Ask | |
 | Wiping container volumes | docker and podman prune commands, volume removal, compose down with volumes | Ask | |
 | Deleting Kubernetes resources | `kubectl delete` and `drain`, scaling to zero, `helm uninstall` and `rollback` | Ask | |
 | Destroying infrastructure as code | terraform, OpenTofu, Pulumi and CDK destroy; apply without review; state surgery | Ask | |
-| Deleting cloud resources | Delete and terminate commands in the AWS, Google Cloud and Azure CLIs, and app teardown on common hosts | Ask | |
+| Deleting cloud resources | Delete and terminate commands in the AWS, Google Cloud and Azure CLIs and Azure PowerShell; for Azure also stopping, complete-mode deployments, removing locks, role assignments and opening things to the internet; app teardown on common hosts | Ask | |
 | Changing the machine itself | `sudo`, opening permissions wide, stopping services, shutdown, firewall and registry changes | Ask | |
+
+### Picking your tools
+
+Step 1 has a folded **Tools you use** list: clouds, clusters, infrastructure-as-code tools, databases, migration tools and container runtimes. Leave it empty and every tool is covered. Pick yours and the output drops rules for the rest, presets skip items none of your tools use, and those items are greyed out. Picking only Azure, for example, keeps `az` and `Remove-Az*` rules and leaves out AWS, Google Cloud and Kubernetes.
 
 ### Presets
 
@@ -287,7 +291,7 @@ Pre-release. Read this before relying on the output.
 
 | | |
 | :- | :- |
-| **Works** | Catalog, generator, hook, simulator and page. 971 tests pass locally. |
+| **Works** | Catalog, generator, hook, simulator and page. 2,016 tests pass locally. |
 | **Not verified** | The generated rules have not yet been confirmed inside a live Claude Code session. The simulator's rules half is a reading of the docs (checked 2026-11-13), not Claude Code's own matcher. If the two disagree, the tests still pass and the rules are still wrong. |
 | **Not built** | Hosting, CI, shareable links, and an `autoMode` fragment. |
 | **Scope** | Claude Code only. |

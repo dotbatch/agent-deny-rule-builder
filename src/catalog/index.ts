@@ -7,6 +7,7 @@ import { infra } from './infra';
 
 export * from './schema';
 export { inputs };
+export * from './tools';
 
 export const categories: { id: Category; title: string; blurb: string }[] = [
   { id: 'secrets', title: 'Secrets and credentials', blurb: 'Once read, a key cannot be un-read.' },

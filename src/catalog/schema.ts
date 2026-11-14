@@ -7,6 +7,8 @@
  * against both so every item ships with proof of what it catches.
  */
 
+import type { ToolId } from './tools';
+
 export type Category = 'secrets' | 'local' | 'remote' | 'infra';
 
 /** critical: unrecoverable and broad. high: unrecoverable. medium: costly to undo. */
@@ -120,6 +122,8 @@ export interface CommandRule {
   /** Cmdlets and Windows tools. */
   powershell?: string[];
   when?: Condition;
+  /** Emit only when this tool was picked, or when no tools were picked. */
+  tool?: ToolId;
 }
 
 /** `WebFetch(domain:x)` and `WebFetch(domain:*.x)` for each host in the input. */
@@ -162,6 +166,8 @@ interface HookCheckBase {
   /** Told to Claude on stderr when the check blocks. */
   message: string;
   when?: Condition;
+  /** Run only when this tool was picked, or when no tools were picked. */
+  tool?: ToolId;
 }
 
 /** Matches a parsed command by program, subcommand and flags in any order. */
@@ -225,7 +231,15 @@ export interface BuiltinCheck extends HookCheckBase {
     /** `git push` whose destination ref, or current branch when none is given, is in the `protectedBranches` input. */
     | 'git-push-protected-branch'
     /** `git commit` or `git merge` while the current branch is in `protectedBranches`. */
-    | 'git-commit-on-protected-branch';
+    | 'git-commit-on-protected-branch'
+    /**
+     * An `az` command, other than `az account` and `az login`, that names no
+     * `--subscription` while the default subscription in the Azure CLI profile
+     * matches one of the values in `input`.
+     */
+    | 'azure-default-subscription';
+  /** A string-list input whose values the check reads. */
+  input?: string;
 }
 
 // ----------------------------------------------------------------- tests

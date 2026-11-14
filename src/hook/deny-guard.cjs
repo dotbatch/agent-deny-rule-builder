@@ -756,6 +756,27 @@ function checkCommitOnProtected(unit, ctx, protectedBranches) {
   return current && protectedBranches.includes(current) ? `the current branch "${current}" is protected` : null;
 }
 
+/** `az` command groups that only sign in, switch or inspect the subscription, or manage the CLI itself. */
+const AZ_LOCAL = new Set(['account', 'login', 'logout', 'version', 'upgrade', 'extension', 'config', 'cloud', 'find', 'feedback', 'interactive', 'init', 'bicep', 'help']);
+
+/**
+ * An `az` command that names no subscription, run while the CLI's default
+ * subscription matches a production name. Matching is case-insensitive and
+ * by substring, like the item's `*name*` rules.
+ */
+function checkAzureDefaultSubscription(unit, ctx, values) {
+  if (unit.program.toLowerCase() !== 'az' || !values || values.length === 0) return null;
+  const pos = positionals(unit.args);
+  if (pos.length === 0 || AZ_LOCAL.has(pos[0].toLowerCase())) return null;
+  // An explicit subscription is covered by the item's rules when it is a production one.
+  if (hasFlag(unit.args, '--subscription', false) || hasFlag(unit.args, '--ids', false)) return null;
+  const sub = ctx.azureSubscription();
+  if (!sub) return null;
+  const names = [sub.name, sub.id].filter(Boolean).map((x) => String(x).toLowerCase());
+  const hit = values.find((v) => names.some((n) => n.includes(String(v).toLowerCase())));
+  return hit ? `the default Azure subscription "${sub.name || sub.id}" matches "${hit}"` : null;
+}
+
 /** Returns a reason string if the check fires for this unit, else null. */
 function runCheck(check, unit, ctx, rules) {
   switch (check.type) {
@@ -777,6 +798,7 @@ function runCheck(check, unit, ctx, rules) {
       if (check.name === 'recursive-delete-outside-project') detail = checkRecursiveDelete(unit, ctx);
       else if (check.name === 'git-push-protected-branch') detail = checkPushProtected(unit, ctx, branches);
       else if (check.name === 'git-commit-on-protected-branch') detail = checkCommitOnProtected(unit, ctx, branches);
+      else if (check.name === 'azure-default-subscription') detail = checkAzureDefaultSubscription(unit, ctx, check.values);
       else throw new Error(`unknown builtin check "${check.name}"`);
       return detail ? `${check.message} (${detail})` : null;
     }
@@ -798,6 +820,18 @@ function defaultContext(input) {
     projectDir: process.env.CLAUDE_PROJECT_DIR || cwd,
     home: os.homedir(),
     tmpDirs: tmp.filter(Boolean),
+    azureSubscription() {
+      // The Azure CLI keeps its profile in AZURE_CONFIG_DIR, or ~/.azure. The file starts with a BOM.
+      try {
+        const path = require('path');
+        const dir = process.env.AZURE_CONFIG_DIR || path.join(os.homedir(), '.azure');
+        const text = require('fs').readFileSync(path.join(dir, 'azureProfile.json'), 'utf8').replace(/^﻿/, '');
+        const def = (JSON.parse(text).subscriptions || []).find((s) => s && s.isDefault);
+        return def ? { name: def.name || '', id: def.id || '' } : null;
+      } catch {
+        return null;
+      }
+    },
     currentBranch(dir) {
       if (!dir) return null;
       try {
@@ -829,6 +863,7 @@ function evaluate(input, rules, context) {
     projectDir: collapse(normPath(base.projectDir, win)),
     tmpDirs: (base.tmpDirs || []).map((d) => collapse(normPath(d, win))),
     currentBranch: base.currentBranch || (() => null),
+    azureSubscription: base.azureSubscription || (() => null),
   };
   const fail = (reason) => ({ decision: 'deny', hits: [{ id: 'guard', title: 'deny-guard', mode: 'deny', reason, command: '' }] });
 

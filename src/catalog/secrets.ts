@@ -297,19 +297,11 @@ export const secrets: CatalogItem[] = [
         any: [
           'gh auth token *',
           'gh auth status --show-token*',
-          'aws configure export-credentials *',
-          'aws sts get-session-token *',
-          'gcloud auth print-access-token *',
-          'gcloud auth print-identity-token *',
-          'gcloud auth application-default print-access-token *',
-          'az account get-access-token *',
           'op read *',
           'op item get *',
           'vault kv get *',
           'vault read *',
           'doppler secrets *',
-          'kubectl get secret *',
-          'kubectl get secrets *',
         ],
         // Not `Env:*`: a rule ending in `:*` is read as the trailing-wildcard spelling, i.e. `Env *`.
         powershell: [
@@ -321,6 +313,14 @@ export const secrets: CatalogItem[] = [
           '[Environment]::GetEnvironmentVariables*',
         ],
       },
+      { kind: 'command', tool: 'aws', any: ['aws configure export-credentials *', 'aws sts get-session-token *'] },
+      {
+        kind: 'command',
+        tool: 'gcp',
+        any: ['gcloud auth print-access-token *', 'gcloud auth print-identity-token *', 'gcloud auth application-default print-access-token *'],
+      },
+      { kind: 'command', tool: 'azure', any: ['az account get-access-token *'], powershell: ['Get-AzAccessToken*'] },
+      { kind: 'command', tool: 'kubernetes', any: ['kubectl get secret *', 'kubectl get secrets *'] },
     ],
     hook: [
       {
@@ -345,6 +345,10 @@ export const secrets: CatalogItem[] = [
       { tool: 'PowerShell', input: 'Get-ChildItem Env:', expect: 'block', by: 'rule' },
       { tool: 'PowerShell', input: 'dir Env:', expect: 'block', by: 'rule' },
       { tool: 'PowerShell', input: 'gci env: | Out-String', expect: 'block', by: 'rule' },
+      { tool: 'Bash', input: 'az account get-access-token --resource https://management.azure.com', expect: 'block', by: 'rule' },
+      { tool: 'PowerShell', input: 'Get-AzAccessToken -ResourceUrl https://vault.azure.net', expect: 'block', by: 'rule' },
+      { tool: 'Bash', input: 'kubectl get secret db-creds -o yaml', expect: 'block', by: 'rule' },
+      { tool: 'Bash', input: 'az account show', expect: 'allow' },
       { tool: 'Bash', input: 'env NODE_ENV=test npm test', expect: 'allow' },
       { tool: 'Bash', input: 'gh auth status', expect: 'allow' },
       { tool: 'Bash', input: 'echo $AWS_SECRET_ACCESS_KEY', expect: 'allow', gap: true },
