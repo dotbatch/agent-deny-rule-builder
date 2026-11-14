@@ -7,6 +7,8 @@
 A static web page that turns a checklist into Claude Code deny rules,<br>
 an optional hook for the cases rules miss, and a box to test any command against both.
 
+**[Open the live page](https://dotbatch.github.io/agent-deny-rule-builder/)**
+
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6.svg)](tsconfig.json)
 [![Runtime dependencies: none](https://img.shields.io/badge/runtime%20dependencies-none-brightgreen.svg)](package.json)
