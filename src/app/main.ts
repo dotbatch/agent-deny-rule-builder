@@ -10,10 +10,12 @@ import {
   initialState,
   loadState,
   neededInputs,
+  normalizeEnv,
   parseList,
   presetIds,
   presets,
   saveState,
+  shellAllowed,
   toInputValues,
   toSelections,
   type AppState,
@@ -96,6 +98,10 @@ function segmented<T extends string>(label: string, options: readonly (readonly 
       for (const input of inputs.values()) input.disabled = disabled;
       el.classList.toggle('disabled', disabled);
     },
+    /** Disables one option, for example PowerShell where it cannot run. */
+    disableOption(v: T, disabled: boolean) {
+      inputs.get(v)!.disabled = disabled;
+    },
   };
 }
 
@@ -161,6 +167,7 @@ function renderEnvironment(): HTMLElement {
   );
   const syncSandbox = () => {
     const windows = state.env.os === 'windows';
+    sandbox.set(state.env.sandbox);
     sandbox.disable(windows);
     sandboxNote.textContent = windows
       ? 'Not available on native Windows. Run Claude Code in WSL2 to get it.'
@@ -170,6 +177,7 @@ function renderEnvironment(): HTMLElement {
   };
 
   const shellBoxes = new Map<Shell, HTMLInputElement>();
+  const shellNotes = new Map<Shell, HTMLElement>();
   const shellRow = h('div', { class: 'chips', role: 'group', 'aria-label': 'Shell tools Claude has' });
   for (const [shell, label] of [
     ['bash', 'Bash'],
@@ -183,9 +191,20 @@ function renderEnvironment(): HTMLElement {
         changed();
       },
     });
+    const note = h('span', { class: 'muted' });
     shellBoxes.set(shell, box);
-    shellRow.append(h('label', { class: 'chip' }, box, h('span', {}, label)));
+    shellNotes.set(shell, note);
+    shellRow.append(h('label', { class: 'chip' }, box, h('span', {}, label), note));
   }
+  const syncShells = () => {
+    for (const [shell, box] of shellBoxes) {
+      const allowed = shellAllowed(state.env.os, shell);
+      box.disabled = !allowed;
+      box.checked = allowed && state.env.shells.includes(shell);
+      shellNotes.get(shell)!.textContent = allowed ? '' : ' Windows only';
+    }
+    testerSyncShell();
+  };
 
   const os = segmented(
     'Operating system',
@@ -199,7 +218,8 @@ function renderEnvironment(): HTMLElement {
     (value: Os) => {
       state.env.os = value;
       state.env.shells = defaultShells(value);
-      for (const [shell, box] of shellBoxes) box.checked = state.env.shells.includes(shell);
+      Object.assign(state.env, normalizeEnv(state.env));
+      syncShells();
       syncSandbox();
       changed();
     },
@@ -227,6 +247,7 @@ function renderEnvironment(): HTMLElement {
     },
   );
 
+  syncShells();
   syncSandbox();
   syncScope();
   return step(
@@ -883,7 +904,20 @@ function testerContext(): SimContext {
   };
 }
 
+/** The tester's shell picker, once rendered. Kept here so the environment step can update it. */
+let testerShell: ReturnType<typeof segmented<'Bash' | 'PowerShell'>> | undefined;
+
+/** Only offer PowerShell in the tester on native Windows, and fall back to Bash everywhere else. */
+function testerSyncShell(): void {
+  if (!testerShell) return;
+  const allowed = shellAllowed(state.env.os, 'powershell');
+  testerShell.disableOption('PowerShell', !allowed);
+  if (!allowed) tester.shell = 'Bash';
+  testerShell.set(tester.shell);
+}
+
 function renderTesterResult(): void {
+  testerSyncShell();
   testerResultEl.replaceChildren();
   const text = tester.text.trim();
   const selections = toSelections(state.selected);
@@ -971,6 +1005,7 @@ function renderTester(): HTMLElement {
     },
     true,
   );
+  testerShell = shell;
   const branch = h('input', {
     type: 'text',
     class: 'branch-input',

@@ -15,6 +15,21 @@ export function defaultShells(os: Os): Shell[] {
   return os === 'windows' ? ['bash', 'powershell'] : ['bash'];
 }
 
+/** PowerShell is only offered on native Windows. Claude Code's PowerShell tool does not run on macOS, Linux or WSL2. */
+export function shellAllowed(os: Os, shell: Shell): boolean {
+  return shell === 'bash' || os === 'windows';
+}
+
+/** Drops choices that cannot happen on the chosen OS, so stale saved settings never reach the output. */
+export function normalizeEnv(env: Environment): Environment {
+  return {
+    ...env,
+    shells: env.shells.filter((s) => shellAllowed(env.os, s)),
+    // Native Windows has no sandbox, so the control is disabled there and must not stay on.
+    sandbox: env.os === 'windows' ? 'off' : env.sandbox,
+  };
+}
+
 export function guessOs(platform: string): Os {
   const p = platform.toLowerCase();
   if (p.includes('win')) return 'windows';
@@ -125,7 +140,7 @@ export function loadState(storage: Pick<Storage, 'getItem'>, fallback: AppState)
     const knownTools = new Set<string>(toolIds);
     const tools = (Array.isArray(saved.env?.tools) ? saved.env.tools : []).filter((t): t is ToolId => knownTools.has(t));
     return {
-      env: { ...fallback.env, ...(saved.env ?? {}), tools },
+      env: normalizeEnv({ ...fallback.env, ...(saved.env ?? {}), tools }),
       selected,
       inputs: { ...fallback.inputs, ...(saved.inputs ?? {}) },
     };
