@@ -219,6 +219,53 @@ describe('protected branches', () => {
   });
 });
 
+describe('default Azure subscription', () => {
+  const rules = rulesFor(['infra.production-targets'], { prodIdentifiers: ['acme-prod'] });
+  const onProd = { ...posix, azureSubscription: () => ({ name: 'Acme-Prod Subscription', id: '1111-2222' }) };
+  const onDev = { ...posix, azureSubscription: () => ({ name: 'Acme Dev', id: '3333-4444' }) };
+
+  it('asks for az commands that run against a production default subscription', () => {
+    expect(decide('Bash', 'az group delete -n rg-app --yes', rules, onProd)).toBe('ask');
+    expect(decide('Bash', 'az vm list', rules, onProd)).toBe('ask');
+    expect(decide('PowerShell', 'az webapp stop -g rg-app -n api', rules, { ...windows, azureSubscription: onProd.azureSubscription })).toBe('ask');
+    expect(decide('Bash', 'cd infra && az deployment group create -g rg-app -f main.bicep', rules, onProd)).toBe('ask');
+  });
+
+  it('leaves alone a dev subscription, an explicit other subscription, and switching away', () => {
+    expect(decide('Bash', 'az group delete -n rg-app --yes', rules, onDev)).toBe('allow');
+    expect(decide('Bash', 'az group delete -n rg-app --subscription acme-dev', rules, onProd)).toBe('allow');
+    expect(decide('Bash', 'az account set --subscription acme-dev', rules, onProd)).toBe('allow');
+    expect(decide('Bash', 'az account show', rules, onProd)).toBe('allow');
+    expect(decide('Bash', 'az login', rules, onProd)).toBe('allow');
+    expect(decide('Bash', 'az --version', rules, onProd)).toBe('allow');
+    expect(decide('Bash', 'az group list', rules, posix)).toBe('allow');
+  });
+
+  it('matches the subscription id too', () => {
+    const byId = rulesFor(['infra.production-targets'], { prodIdentifiers: ['1111-2222'] });
+    expect(decide('Bash', 'az group list', byId, onProd)).toBe('ask');
+  });
+
+  it('reads the default subscription from the Azure CLI profile, which starts with a BOM', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'azcfg-'));
+    const profile = { subscriptions: [{ id: '3333', name: 'Acme Dev', isDefault: false }, { id: '1111', name: 'acme-prod', isDefault: true }] };
+    writeFileSync(join(dir, 'azureProfile.json'), '﻿' + JSON.stringify(profile));
+    const rulesFile = join(dir, 'rules.json');
+    writeFileSync(rulesFile, JSON.stringify(rules));
+    const run = (command: string) =>
+      spawnSync(process.execPath, [SCRIPT], {
+        input: JSON.stringify({ tool_name: 'Bash', tool_input: { command }, cwd: dir }),
+        env: { ...process.env, AZURE_CONFIG_DIR: dir, DENY_GUARD_RULES: rulesFile },
+        encoding: 'utf8',
+      });
+    const asked = run('az group delete -n rg-app --yes');
+    expect(asked.status).toBe(0);
+    expect(JSON.parse(asked.stdout).hookSpecificOutput.permissionDecision).toBe('ask');
+    expect(asked.stdout).toContain('acme-prod');
+    expect(run('az account set -s acme-dev').stdout).toBe('');
+  });
+});
+
 describe('paths in commands', () => {
   const rules = rulesFor(['secrets.env-files', 'secrets.ssh-keys', 'local.protected-paths'], {
     protectedPaths: ['db/migrations/', 'package-lock.json'],

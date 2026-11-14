@@ -382,13 +382,17 @@ input[type='checkbox']:checked,
 }
 .chip {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   cursor: pointer;
 }
 .chip input {
   position: absolute;
   opacity: 0;
 }
-.chip span {
+/* The pill is the span right after the box; a note after it stays plain text. */
+.chip input + span {
   display: block;
   padding: 0.3rem 0.85rem 0.3rem 0.7rem;
   border-radius: 99rem;
@@ -398,8 +402,21 @@ input[type='checkbox']:checked,
   color: var(--muted);
   transition: background-color 150ms, color 150ms, border-color 150ms;
 }
-.chip span::before {
+.chip input + span::before {
   content: '+ ';
+}
+.chip:has(input:disabled) {
+  cursor: not-allowed;
+}
+.chip input:disabled + span {
+  opacity: 0.5;
+}
+.chip-note {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.chip-note:empty {
+  display: none;
 }
 .chip input:checked + span {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -1065,4 +1082,49 @@ tr:last-child td {
   .item-foot {
     padding-left: 1rem;
   }
+}
+
+/* ---------------------------------------------------------- tool picker */
+
+.field-control > .disclosure summary {
+  padding: 0.3rem 0;
+  font-weight: 500;
+}
+.field-control > .disclosure .disclosure-body {
+  padding: 0.5rem 0 0.25rem;
+}
+.tool-summary .muted {
+  font-weight: 400;
+}
+.tool-group + .tool-group {
+  margin-top: 0.75rem;
+}
+.tool-group-title {
+  margin-bottom: 0.375rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 550;
+}
+.chips:has(.chip.small) {
+  gap: 0.375rem;
+}
+.chip.small input + span {
+  padding: 0.2rem 0.7rem 0.2rem 0.6rem;
+  font-size: 0.875rem;
+}
+.field-control > .disclosure .field-note {
+  margin: 0.875rem 0 0;
+}
+.item.unused:not(.on) {
+  opacity: 0.6;
+}
+.item-unused {
+  display: block;
+  margin-top: 0.375rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+.item-unused[hidden] {
+  display: none;
 }

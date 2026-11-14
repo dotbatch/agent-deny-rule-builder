@@ -73,6 +73,8 @@ export interface SimContext {
   tmpDirs?: string[];
   /** What `git rev-parse --abbrev-ref HEAD` would print; used by the hook's branch checks. */
   currentBranch?: string | null;
+  /** The Azure CLI's default subscription; used by the hook's production check. */
+  azureSubscription?: { name: string; id: string } | null;
   scope: Scope;
 }
 
@@ -370,6 +372,7 @@ export function simulate(call: Call, rules: GeneratedRule[], hookRules: HookRule
         home: ctx.home,
         tmpDirs: ctx.tmpDirs ?? [],
         currentBranch: () => ctx.currentBranch ?? null,
+        azureSubscription: () => ctx.azureSubscription ?? null,
       }).hits;
     }
   } else if (call.tool === 'Read' || call.tool === 'Edit') {

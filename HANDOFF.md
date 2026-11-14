@@ -34,7 +34,7 @@ npm run typecheck
 npm run dev
 ```
 
-- `npm test` runs 971 tests in about 15 seconds.
+- `npm test` runs 2,016 tests in about 15 seconds.
 - `npm run live-test rules <empty-folder>` (or `hook`, and optionally `readers` as a third word) runs real tool calls through the signed-in `claude` CLI and compares them with the simulator. It costs roughly a dollar of usage per run and takes a few minutes.
 - `npm run dev` serves the page. `.claude/launch.json` starts it on port 5391, because 5173 was taken by another project on the machine this was built on.
 - `npm run build` typechecks and writes `dist/` (ignored by git).

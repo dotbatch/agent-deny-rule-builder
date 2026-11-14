@@ -1,4 +1,4 @@
-import { catalog, categories } from '../catalog';
+import { catalog, categories, itemApplies, itemTools, toolGroups, tools, type ToolId } from '../catalog';
 import type { CatalogItem, InputDef, Mode } from '../catalog/schema';
 import { generate, type GenerateResult, type Os, type Shell } from '../generator/generate';
 import guardSource from '../hook/deny-guard.cjs?raw';
@@ -12,6 +12,7 @@ import {
   neededInputs,
   normalizeEnv,
   parseList,
+  presetIds,
   presets,
   saveState,
   shellAllowed,
@@ -190,7 +191,7 @@ function renderEnvironment(): HTMLElement {
         changed();
       },
     });
-    const note = h('span', { class: 'muted' });
+    const note = h('span', { class: 'chip-note' });
     shellBoxes.set(shell, box);
     shellNotes.set(shell, note);
     shellRow.append(h('label', { class: 'chip' }, box, h('span', {}, label), note));
@@ -200,7 +201,7 @@ function renderEnvironment(): HTMLElement {
       const allowed = shellAllowed(state.env.os, shell);
       box.disabled = !allowed;
       box.checked = allowed && state.env.shells.includes(shell);
-      shellNotes.get(shell)!.textContent = allowed ? '' : ' Windows only';
+      shellNotes.get(shell)!.textContent = allowed ? '' : 'Windows only';
     }
     testerSyncShell();
   };
@@ -258,11 +259,86 @@ function renderEnvironment(): HTMLElement {
       { class: 'group' },
       field('Operating system', os.el),
       field('Shell tools Claude has', shellRow),
+      field('Tools you use', renderToolPicker()),
       field('Where the rules live', scope.el, scopeNote),
       field('Sandbox', sandbox.el, sandboxNote),
     ),
     renderHookChoice(),
   );
+}
+
+const toolLabel = new Map<ToolId, string>(tools.map((t) => [t.id, t.label]));
+
+/**
+ * Clouds, clusters, databases and so on, picked as chips inside a fold so
+ * the setup step stays short. Nothing picked means every tool is covered.
+ */
+function renderToolPicker(): HTMLElement {
+  const summary = h('span', { class: 'tool-summary' });
+  const boxes = new Map<ToolId, HTMLInputElement>();
+  const picked = () => state.env.tools ?? [];
+
+  const clear = h(
+    'button',
+    {
+      type: 'button',
+      class: 'link',
+      onclick: () => {
+        state.env.tools = [];
+        sync();
+        toolsChanged();
+      },
+    },
+    'Clear',
+  );
+
+  const sync = () => {
+    const ids = picked();
+    for (const [id, box] of boxes) box.checked = ids.includes(id);
+    clear.hidden = ids.length === 0;
+    if (ids.length === 0) {
+      summary.replaceChildren(h('span', {}, 'Every tool'), h('span', { class: 'muted' }, ' · pick yours to drop rules for the rest'));
+    } else {
+      const names = ids.map((id) => toolLabel.get(id)!);
+      const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ');
+      summary.replaceChildren(h('span', {}, shown));
+    }
+  };
+
+  const groups = toolGroups.map((group) => {
+    const row = h('div', { class: 'chips', role: 'group', 'aria-label': group.title });
+    for (const tool of tools.filter((t) => t.group === group.id)) {
+      const box = h('input', {
+        type: 'checkbox',
+        onchange: () => {
+          const set = new Set(picked());
+          if (box.checked) set.add(tool.id);
+          else set.delete(tool.id);
+          // Keep list order, so the summary and saved state do not depend on click order.
+          state.env.tools = tools.map((t) => t.id).filter((id) => set.has(id));
+          sync();
+          toolsChanged();
+        },
+      });
+      boxes.set(tool.id, box);
+      row.append(h('label', { class: 'chip small', title: tool.hint }, box, h('span', {}, tool.label)));
+    }
+    return h('div', { class: 'tool-group' }, h('div', { class: 'tool-group-title' }, group.title), row);
+  });
+
+  sync();
+  return disclosure(
+    'tools',
+    [summary],
+    ...groups,
+    h('p', { class: 'field-note' }, 'Leave empty to cover every tool. Rules for tools you do not pick are left out, and presets skip items none of them use. ', clear),
+  );
+}
+
+/** Tools changed: item cards, presets and output all depend on them. */
+function toolsChanged(): void {
+  syncItems();
+  changed(true);
 }
 
 function renderHookChoice(): HTMLElement {
@@ -379,10 +455,11 @@ interface ItemEls {
   box: HTMLInputElement;
   card: HTMLElement;
   foot: HTMLElement;
+  toolNote: HTMLElement;
   setMode: (mode: Mode) => void;
 }
 const itemEls = new Map<string, ItemEls>();
-const presetButtons = new Map<string, HTMLButtonElement>();
+const presetButtons = new Map<string, { button: HTMLButtonElement; count: HTMLElement }>();
 const categoryCounts = new Map<string, HTMLElement>();
 const selectionCount = h('span', { class: 'muted' });
 const clearButton = h('button', { type: 'button', class: 'link', onclick: () => replaceSelection({}, 'Selection cleared.') }, 'Clear all');
@@ -391,8 +468,8 @@ function activePresetId(): string | null {
   const count = Object.keys(state.selected).length;
   if (count === 0) return null;
   for (const preset of presets) {
-    const ids = new Set(preset.ids());
-    if (ids.size === count && [...ids].every((id) => id in state.selected)) return preset.id;
+    const ids = presetIds(preset, state.env.tools);
+    if (ids.length === count && ids.every((id) => id in state.selected)) return preset.id;
   }
   return null;
 }
@@ -405,9 +482,18 @@ function syncItems(): void {
     els.card.classList.toggle('on', on);
     els.foot.hidden = !on;
     if (mode) els.setMode(mode);
+    const item = catalog.find((i) => i.id === id)!;
+    const applies = itemApplies(item, state.env.tools);
+    els.card.classList.toggle('unused', !applies);
+    els.toolNote.hidden = applies;
   }
   const active = activePresetId();
-  for (const [id, button] of presetButtons) button.setAttribute('aria-pressed', String(id === active));
+  for (const preset of presets) {
+    const els = presetButtons.get(preset.id);
+    if (!els) continue;
+    els.button.setAttribute('aria-pressed', String(preset.id === active));
+    els.count.textContent = `${presetIds(preset, state.env.tools).length} protections`;
+  }
   for (const category of categories) {
     const items = catalog.filter((i) => i.category === category.id);
     categoryCounts.get(category.id)!.textContent = `${items.filter((i) => i.id in state.selected).length} of ${items.length}`;
@@ -464,6 +550,13 @@ function renderItem(item: CatalogItem): HTMLElement {
     mode.el,
     item.inputs?.length ? h('a', { class: 'item-needs', href: '#details' }, 'Needs details in step 3') : null,
   );
+  const toolNote = h(
+    'span',
+    { class: 'item-unused', hidden: true },
+    `Not used by your tools. Covers ${itemTools(item)
+      .map((t) => toolLabel.get(t))
+      .join(', ')}.`,
+  );
   const card = h(
     'div',
     { class: 'item' },
@@ -477,6 +570,7 @@ function renderItem(item: CatalogItem): HTMLElement {
         h('span', { class: 'item-title' }, item.title, h('span', { class: `sev ${item.severity}` }, item.severity)),
         h('span', { class: 'item-stops' }, item.stops),
         h('span', { class: 'item-why' }, item.why),
+        toolNote,
       ),
     ),
     foot,
@@ -485,6 +579,7 @@ function renderItem(item: CatalogItem): HTMLElement {
     box,
     card,
     foot,
+    toolNote,
     setMode: (value) => {
       modeValue = value;
       mode.set(value);
@@ -497,19 +592,20 @@ function renderProtections(): HTMLElement {
   const presetGrid = h('div', { class: 'presets' });
   for (const preset of presets) {
     if (preset.id === 'none') continue;
+    const count = h('span', { class: 'preset-count' });
     const button = h(
       'button',
       {
         type: 'button',
         class: 'preset',
         'aria-pressed': 'false',
-        onclick: () => replaceSelection(applyPreset(preset.ids()), `Switched to ${preset.label}.`),
+        onclick: () => replaceSelection(applyPreset(presetIds(preset, state.env.tools)), `Switched to ${preset.label}.`),
       },
       h('span', { class: 'preset-title' }, preset.label),
-      h('span', { class: 'preset-count' }, `${new Set(preset.ids()).size} protections`),
+      count,
       h('span', { class: 'preset-hint' }, preset.hint),
     );
-    presetButtons.set(preset.id, button);
+    presetButtons.set(preset.id, { button, count });
     presetGrid.append(button);
   }
 
