@@ -141,3 +141,4 @@ These were raised during the build and are still open. Each one has a default th
 4. Add CI and a short README.
 5. Click through copy and download on the page.
 6. Then the optional work: `autoMode` fragment, shareable links, design.
+7. **Tool picker (idea, not started).** On the page, let the user pick the tools they use (GitHub, npm, Docker, AWS, Terraform, Postgres, and so on), each shown with its logo. The selected tools generate rules automatically from the catalog. Users can also add their own tools that are not in the list, with their own commands and paths.
