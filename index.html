@@ -3,18 +3,30 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)" />
     <title>Deny Rule Builder for Claude Code</title>
     <link rel="stylesheet" href="/src/app/style.css" />
   </head>
   <body>
-    <header>
-      <h1>Deny Rule Builder for Claude Code</h1>
-      <p>
-        Pick what you want to protect, fill in the details only you know, and copy the result into your Claude Code
-        settings. Everything runs in this page. Nothing you type is sent anywhere.
-      </p>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#top">Deny Rule Builder</a>
+        <nav id="steps" class="steps" aria-label="Steps"></nav>
+        <a id="summary" class="summary" href="#rules">No rules yet</a>
+      </div>
     </header>
-    <main id="app"></main>
+    <div class="page" id="top">
+      <section class="hero">
+        <h1>Deny Rule Builder for Claude Code</h1>
+        <p>
+          Pick what you want to protect, fill in the details only you know, and copy the result into your Claude Code
+          settings.
+        </p>
+        <p class="privacy">Everything runs in this page. Nothing you type is sent anywhere.</p>
+      </section>
+      <main id="app"></main>
+    </div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>
