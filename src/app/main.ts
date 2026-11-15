@@ -1,6 +1,7 @@
 import { catalog, categories, itemApplies, itemTools, toolGroups, tools, type ToolId } from '../catalog';
 import type { CatalogItem, InputDef, Mode } from '../catalog/schema';
 import { generate, type GenerateResult, type Os, type Shell } from '../generator/generate';
+import { mergeSettings, type MergeResult } from '../generator/merge';
 import guardSource from '../hook/deny-guard.cjs?raw';
 import { assumeHome, loadGuard, simulate, type Call, type SimContext } from '../simulator/simulate';
 import {
@@ -759,22 +760,101 @@ function fileBlock(title: string, destination: string, filename: string, text: s
   );
 }
 
+// ------------------------------------------------- merging with an existing file
+
+/*
+ * The pasted settings live only in this textarea. They are deliberately kept
+ * out of `state`, so they are never written to localStorage: settings files
+ * often hold API keys in `env`.
+ */
+const pasteArea = h('textarea', {
+  rows: 6,
+  spellcheck: false,
+  autocomplete: 'off',
+  placeholder: '{\n  "permissions": { "allow": ["Bash(npm test)"] }\n}',
+  'aria-label': 'Your current settings.json',
+  oninput: () => renderSettingsSlot(),
+});
+const settingsSlot = h('div', { class: 'settings-slot' });
+const firstInstallStep = h('li');
+let lastResult: GenerateResult | undefined;
+
+function mergeCard(): HTMLElement {
+  return h(
+    'div',
+    { class: 'group' },
+    disclosure(
+      'merge',
+      [h('span', { class: 'gap-title' }, 'Already have a settings.json? Merge into it')],
+      h(
+        'p',
+        { class: 'muted' },
+        'Paste the whole file, or just the part inside ',
+        h('code', {}, '"permissions"'),
+        '. These rules are added, anything already there is skipped, and everything else in your file is left exactly as it is. This happens in your browser: what you paste is not sent anywhere or saved.',
+      ),
+      pasteArea,
+    ),
+  );
+}
+
+function mergeSummary(m: Extract<MergeResult, { ok: true }>): HTMLElement {
+  const parts = [`Added ${m.added}`, `skipped ${m.skipped} already there`];
+  if (m.moved.length > 0) parts.push(`moved ${m.moved.length} from ask to block`);
+  const what = m.kind === 'file' ? 'your file' : 'your permissions section';
+  const box = h('div', { class: 'callout' }, h('strong', {}, 'Merged with ', what, '. '), parts.join(', ') + '.');
+  if (m.warnings.length > 0) {
+    const list = h('ul');
+    for (const w of m.warnings) list.append(h('li', {}, w));
+    return h('div', { class: 'step-body' }, box, h('div', { class: 'callout warn' }, h('strong', {}, 'Check before you save'), list));
+  }
+  return box;
+}
+
+/** Fills the settings file and the first install step. Runs on every keystroke in the paste box. */
+function renderSettingsSlot(): void {
+  const result = lastResult;
+  if (!result) return;
+  const base = state.env.scope === 'project' ? '.claude' : '~/.claude';
+  const fragment = JSON.stringify(result.settings, null, 2) + '\n';
+  const pasted = pasteArea.value.trim();
+  const merge = pasted === '' ? undefined : mergeSettings(pasted, result.settings);
+
+  if (merge?.ok && merge.kind === 'file') {
+    settingsSlot.replaceChildren(mergeSummary(merge), fileBlock('Settings, merged', `${base}/settings.json`, 'settings.json', JSON.stringify(merge.merged, null, 2) + '\n'));
+    firstInstallStep.replaceChildren('Replace the contents of ', h('code', {}, `${base}/settings.json`), ' with the merged file above.');
+    return;
+  }
+  if (merge?.ok) {
+    settingsSlot.replaceChildren(mergeSummary(merge), fileBlock('Settings, merged', `${base}/settings.json`, 'settings.fragment.json', JSON.stringify(merge.merged, null, 2) + '\n'));
+    firstInstallStep.replaceChildren(
+      'In ',
+      h('code', {}, `${base}/settings.json`),
+      ', replace your ',
+      h('code', {}, 'permissions'),
+      ' section with the one above, and add the other sections if you do not have them yet.',
+    );
+    return;
+  }
+  settingsSlot.replaceChildren(
+    merge ? h('p', { class: 'callout warn', role: 'alert' }, h('strong', {}, 'Could not merge. '), merge.error, ' The rules on their own are shown below.') : '',
+    fileBlock('Settings', `${base}/settings.json`, 'settings.fragment.json', fragment),
+  );
+  firstInstallStep.replaceChildren(
+    'Open ',
+    h('code', {}, `${base}/settings.json`),
+    ', or create it. If it already has ',
+    h('code', {}, 'permissions'),
+    ' or ',
+    h('code', {}, 'hooks'),
+    ', add these entries to the existing lists instead of replacing them, or paste the file above to have them merged.',
+  );
+}
+
 function installSteps(result: GenerateResult): HTMLElement {
   const base = state.env.scope === 'project' ? '.claude' : '~/.claude';
   const steps = h('ol', { class: 'install' });
-  steps.append(
-    h(
-      'li',
-      {},
-      'Open ',
-      h('code', {}, `${base}/settings.json`),
-      ', or create it. If it already has ',
-      h('code', {}, 'permissions'),
-      ' or ',
-      h('code', {}, 'hooks'),
-      ', add these entries to the existing lists instead of replacing them.',
-    ),
-  );
+  steps.append(firstInstallStep);
   if (result.hook) {
     steps.append(
       h('li', {}, 'Save the two hook files into ', h('code', {}, `${base}/hooks/`), ', keeping their names.'),
@@ -863,7 +943,8 @@ function renderOutput(): void {
   }
 
   const base = state.env.scope === 'project' ? '.claude' : '~/.claude';
-  out.push(fileBlock('Settings', `${base}/settings.json`, 'settings.fragment.json', JSON.stringify(result.settings, null, 2) + '\n'));
+  lastResult = result;
+  out.push(mergeCard(), settingsSlot);
   if (result.hook) {
     const root = result.hook.relativeTo === 'project' ? '' : '~/';
     out.push(
@@ -902,6 +983,7 @@ function renderOutput(): void {
   out.push(h('div', { class: 'group' }, disclosure('rule-table', ['Which selection produced each rule'], h('div', { class: 'table-wrap' }, table))));
 
   outputBody.replaceChildren(...out.filter((c): c is Node | string => Boolean(c)));
+  renderSettingsSlot();
 }
 
 // ----------------------------------------------------------------- 5. tester
