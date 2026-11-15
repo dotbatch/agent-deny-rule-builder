@@ -582,6 +582,81 @@ input[type='checkbox']:checked,
   max-width: 44rem;
 }
 
+/* pros and cons inside "What is the difference?" */
+.block > .disclosure .disclosure-body:has(.pc-grid) {
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+.pc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.25rem 0 1rem;
+}
+.pc-card {
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.pc-title,
+.pc-detail h4 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.pc-label {
+  margin: 0.5rem 0 0.125rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pc-pro {
+  color: var(--ok);
+}
+.pc-con {
+  color: var(--warn);
+}
+.disclosure-body ul.pc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pc-list li {
+  position: relative;
+  padding-left: 1.25rem;
+}
+.pc-list li::before {
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+}
+.pc-pros li::before {
+  content: '+';
+  color: var(--ok);
+}
+.pc-cons li::before {
+  content: '\2212';
+  color: var(--warn);
+}
+.pc-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.25rem 1.5rem;
+}
+.pc-detail {
+  padding: 0 1rem;
+}
+.pc-detail p {
+  margin-top: 0;
+}
+.pc-details ~ p {
+  padding: 0 1rem;
+}
+
 .btn {
   padding: 0.4rem 0.9rem;
   border: 0;

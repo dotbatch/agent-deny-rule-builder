@@ -404,51 +404,88 @@ function renderHookChoice(): HTMLElement {
     );
 
   const li = (...c: Child[]) => h('li', {}, ...c);
+  const pc = (title: string, tag: string, pros: Child[][], cons: Child[][]) =>
+    h(
+      'div',
+      { class: 'pc-card' },
+      h('h4', { class: 'pc-title' }, title, h('span', { class: 'tag' }, tag)),
+      h('p', { class: 'pc-label pc-pro' }, 'Pros'),
+      h('ul', { class: 'pc-list pc-pros' }, ...pros.map((c) => li(...c))),
+      h('p', { class: 'pc-label pc-con' }, 'Cons'),
+      h('ul', { class: 'pc-list pc-cons' }, ...cons.map((c) => li(...c))),
+    );
+  const detail = (title: string, ...body: Child[]) => h('div', { class: 'pc-detail' }, h('h4', {}, title), ...body);
+
   const info = disclosure(
     'hook-info',
     ['What is the difference?'],
     h(
-      'p',
-      {},
-      h('strong', {}, 'Rules'),
-      ' are lines in your settings file. Claude Code checks them itself before every tool call, and a matching call never runs. They cover file reads and edits, web domains, MCP tools, and shell commands.',
+      'div',
+      { class: 'pc-grid' },
+      pc(
+        'Rules only',
+        'Simplest',
+        [
+          ['One block of settings to paste. Nothing to install.'],
+          ['Checked by Claude Code itself. A matching call never runs.'],
+          ['Covers file reads and edits, web domains, MCP tools and shell commands.'],
+          ['No extra code runs on your machine.'],
+        ],
+        [
+          ['Shell rules match the command text only as it is usually written.'],
+          ['Cannot tell where a recursive delete lands.'],
+          ['Cannot see which branch you are on.'],
+        ],
+      ),
+      pc(
+        'Rules plus hook',
+        'Advanced',
+        [
+          ['Takes each shell command apart, so unusual spellings are caught.'],
+          ['Judges recursive deletes by where they land.'],
+          ['Catches a bare push on a protected branch.'],
+          ['Spots protected files named inside inline scripts.'],
+        ],
+        [
+          ['Two more files to keep, and Node.js on your PATH.'],
+          ['A script of ours runs before every shell command.'],
+          ['Can misread a command and block something harmless.'],
+          ['If it breaks, every shell command is blocked until you fix it.'],
+        ],
+      ),
     ),
     h(
-      'p',
-      {},
-      'For shell commands, a rule matches the text of the command as it is usually written. ',
-      h('code', {}, 'Bash(git push --force *)'),
-      ' stops ',
-      h('code', {}, 'git push --force'),
-      ' but not ',
-      h('code', {}, 'git -C . push --force'),
-      ' or ',
-      h('code', {}, "bash -c 'git push --force'"),
-      '. Claude rarely writes commands that way, but nothing prevents it.',
-    ),
-    h(
-      'p',
-      {},
-      h('strong', {}, 'The hook'),
-      ' is a script, ',
-      h('code', {}, 'deny-guard.cjs'),
-      ', that Claude Code runs before every shell command. It takes the command apart first, so those other spellings are caught too. It also does three things rules cannot:',
-    ),
-    h(
-      'ul',
-      {},
-      li('Judges a recursive delete by where it lands, so ', h('code', {}, 'rm -rf ../other-project'), ' is blocked and ', h('code', {}, 'rm -rf dist'), ' is not.'),
-      li('Looks up the current branch, so a bare ', h('code', {}, 'git push'), ' on a protected branch is caught.'),
-      li('Spots a protected file named inside an inline script, such as ', h('code', {}, `node -e "readFileSync('.env')"`), '.'),
-    ),
-    h('p', {}, h('strong', {}, 'What the hook costs you:')),
-    h(
-      'ul',
-      {},
-      li('Two more files to install and keep, and Node.js must be on your PATH.'),
-      li('A script of ours runs on your machine before every shell command. Read it before you trust it.'),
-      li('If it misreads a command it can block something harmless. If it breaks, it blocks every shell command until you fix or remove it.'),
-      li('It does nothing for file reads, web fetches or MCP tools. Rules already handle those in full.'),
+      'div',
+      { class: 'pc-details' },
+      detail(
+        'More on rules',
+        h(
+          'p',
+          {},
+          'Rules are lines in your settings file. For shell commands, ',
+          h('code', {}, 'Bash(git push --force *)'),
+          ' stops ',
+          h('code', {}, 'git push --force'),
+          ' but not ',
+          h('code', {}, 'git -C . push --force'),
+          ' or ',
+          h('code', {}, "bash -c 'git push --force'"),
+          '. Claude rarely writes commands that way, but nothing prevents it.',
+        ),
+        h('p', {}, 'Everything that is not a shell command, such as file reads, web fetches and MCP tools, is handled by rules in full. The hook adds nothing there.'),
+      ),
+      detail(
+        'More on the hook',
+        h('p', {}, 'The hook is a script, ', h('code', {}, 'deny-guard.cjs'), ', that Claude Code runs before every shell command. It is added on top of your rules, not instead of them. Examples of what it catches:'),
+        h(
+          'ul',
+          {},
+          li(h('code', {}, 'rm -rf ../other-project'), ' is blocked, ', h('code', {}, 'rm -rf dist'), ' is not.'),
+          li('A bare ', h('code', {}, 'git push'), ' while on a protected branch.'),
+          li(h('code', {}, `node -e "readFileSync('.env')"`), '.'),
+        ),
+        h('p', {}, 'Read the script before you trust it. When the hook is on, a checkbox decides whether a crash in the hook blocks the command or lets it through.'),
+      ),
     ),
     h(
       'p',
