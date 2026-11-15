@@ -266,6 +266,16 @@ If the hook itself crashes or times out, it blocks the call instead of letting i
 - **The simulator** has two halves. The rules half is this project's own implementation of the matching that Claude Code documents. The hook half runs the real hook script.
 - **The tests** run all 286 catalog test cases through the simulator with only that case's item enabled. A case marked "rule" must be stopped by rules alone; a case marked "hook" must get past the rules and be stopped by the hook; an "allow" case must be stopped by neither.
 
+### Context cost
+
+Instruction files cost context; permission rules do not.
+
+- **`CLAUDE.md` and `.claude/rules/*.md` are instructions.** Claude Code loads them into the context window, and a rule file without `paths` frontmatter loads at the start of every session. Each line uses context for the whole session, and Claude can still ignore it.
+- **The rules this page generates are settings.** They go in `permissions.deny` and `permissions.ask` in `settings.json`. Claude Code checks them before each tool call, outside the model, so even a few hundred rules use no context. The hook works the same way.
+- **A deny on a whole tool saves context.** A bare name such as `WebFetch` removes that tool from Claude's context entirely. A scoped rule such as `Bash(rm *)` leaves the tool in place and refuses only matching calls.
+
+So "never read `.env`" written in `CLAUDE.md` costs context and is a request. The same thing as a deny rule costs nothing and is enforced. Checked against `code.claude.com/docs` (memory and permissions pages) on 2026-11-15.
+
 ### Privacy
 
 Everything runs in the page. Secret paths, branch names and production names you type are kept in your browser's `localStorage` and are not sent anywhere. There is no backend.
