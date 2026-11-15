@@ -6,6 +6,12 @@
     <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)" />
     <title>Deny Rule Builder for Claude Code</title>
+    <script>
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
     <link rel="stylesheet" href="/src/app/style.css" />
   </head>
   <body>
@@ -14,6 +20,7 @@
         <a class="brand" href="#top">Deny Rule Builder</a>
         <nav id="steps" class="steps" aria-label="Steps"></nav>
         <a id="summary" class="summary" href="#rules">No rules yet</a>
+        <button id="theme-toggle" class="theme-toggle" type="button"></button>
       </div>
     </header>
     <div class="page" id="top">
