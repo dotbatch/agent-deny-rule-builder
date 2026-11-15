@@ -819,7 +819,7 @@ let lastResult: GenerateResult | undefined;
 function mergeCard(): HTMLElement {
   return h(
     'div',
-    { class: 'group' },
+    { class: 'group merge-card' },
     disclosure(
       'merge',
       [h('span', { class: 'gap-title' }, 'Already have a settings.json? Merge into it')],

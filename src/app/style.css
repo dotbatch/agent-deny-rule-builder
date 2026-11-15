@@ -315,6 +315,17 @@ h3 {
 .group > * + * {
   border-top: 1px solid var(--border);
 }
+/* Tinted with the accent so the merge option stands out from the plain cards around it. */
+.merge-card {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.merge-card .disclosure > summary {
+  color: var(--accent);
+}
+.merge-card .disclosure > summary::before {
+  border-color: var(--accent);
+}
 .field {
   display: grid;
   grid-template-columns: 13rem 1fr;
