@@ -142,7 +142,7 @@ export const secrets: CatalogItem[] = [
       'Commands that print a token, such as `gh auth token`. Select "Commands that print secrets".',
       'Credentials supplied through environment variables.',
     ],
-    note: '~/.aws/config is left readable because it normally holds only profile names and regions.',
+    note: 'These file rules apply whatever tools you pick, because the files live in your home folder whether or not this project uses them. A rule for a file you do not have never matches. ~/.aws/config is left readable because it normally holds only profile names and regions.',
     tests: [
       { tool: 'Read', input: '~/.aws/credentials', expect: 'block', by: 'rule' },
       { tool: 'Bash', input: 'cat ~/.kube/config', expect: 'block', by: 'rule' },
