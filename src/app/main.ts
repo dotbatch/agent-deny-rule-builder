@@ -40,6 +40,32 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+// ------------------------------------------------------------ theme
+
+const themeBtn = document.getElementById('theme-toggle') as HTMLButtonElement;
+function currentTheme(): 'light' | 'dark' {
+  const set = document.documentElement.dataset.theme;
+  if (set === 'light' || set === 'dark') return set;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function syncThemeBtn(): void {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  themeBtn.textContent = next === 'dark' ? 'Dark mode' : 'Light mode';
+  themeBtn.setAttribute('aria-label', `Switch to ${next} mode`);
+}
+themeBtn.addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try {
+    localStorage.setItem('theme', next);
+  } catch {
+    /* storage unavailable: the choice just won't persist */
+  }
+  syncThemeBtn();
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncThemeBtn);
+syncThemeBtn();
+
 const app = document.getElementById('app')!;
 const state: AppState = loadState(localStorage, initialState(guessOs(navigator.platform)));
 
