@@ -1,20 +1,39 @@
 # Handoff notes
 
-Written 2026-11-14 for whoever picks this up next. Read this first, then `PLAN.md` for the reasoning behind each decision.
+Written 2026-11-14, updated 2026-11-15 through pull request 18. For whoever picks this up next. Read this first, then `PLAN.md` for the reasoning behind each decision.
 
 ## What this is
 
-A static web page that builds Claude Code deny rules. A person picks what they want to protect against, fills in the few details only they know (secret paths, protected branches, production names), and gets settings JSON to paste, plus an optional hook script. A "Try it" box shows whether a typed command would be stopped and by what.
+A static web page that builds Claude Code deny rules. A person picks what they want to protect against and which tools they use, fills in the few details only they know (secret paths, protected branches, production names), and gets settings JSON to paste, plus an optional hook script. They can also paste their existing `settings.json` and get the new rules merged into it. A "Try it" box shows whether a typed command would be stopped and by what.
 
-All seven phases in `PLAN.md` section 8 are written. Nothing has been deployed. The rules and the hook were run in a real Claude Code session on 2026-11-14 (v2.1.215, native Windows only); results are in `PLAN.md` section 9.
+All seven phases in `PLAN.md` section 8 are written, and the page is live. The rules and the hook were run in a real Claude Code session on 2026-11-14 (v2.1.215 and v2.1.325, native Windows only); results are in `PLAN.md` section 9.
 
 ## State of the repo
 
-- **`main`** holds phases 1 to 7, merged through pull requests 1 to 5 on `dotbatch/agent-deny-rule-builder`.
-- Phase 7 was merged through pull request 5.
+- **`main`** holds everything, merged through pull requests 1 to 18 on `dotbatch/agent-deny-rule-builder`. No pull requests are open.
 - CI (`.github/workflows/ci.yml`) runs typecheck, tests and build on Ubuntu and Windows for every pull request and every push to `main`.
 - The page is deployed to GitHub Pages (`.github/workflows/pages.yml`) at https://dotbatch.github.io/agent-deny-rule-builder/ on every push to `main`.
-- `README.md` links to the live page.
+- `README.md` links to the live page and documents every item, preset and limit.
+- **One local branch is unmerged and was never pushed:** `font-picker` (commit `44721e3`) adds a dev-only picker for trying fonts per section. It looks like a design experiment. Keep it, merge it, or delete it; that is the owner's call.
+
+## What shipped after phase 7
+
+| Pull request | Change |
+| :- | :- |
+| 6, 7 | README, the live test script, and the note that read paths get both `Read` and `Edit` rules. |
+| 8 | CI. |
+| 9 | Page redesign: a sticky step bar with a live rule count, preset and protection cards, inline feedback on required fields, and a coloured verdict in "Try it". No change to the catalog, generator, hook or simulator. |
+| 10 | Environment choices that cannot happen are disabled: PowerShell is offered only on native Windows, and picking native Windows turns the sandbox off. Saved state is normalised on load. |
+| 11 | **Tool picker** (34 tools in six groups, in `src/catalog/tools.ts`). Rules and hook checks tagged with a tool are left out when it is not picked; presets skip items none of the picked tools use. Picking nothing means every tool. Also deeper Azure coverage, and a hook check that asks for `az` commands while the default subscription matches a production name. |
+| 12 | Maven tool, and blocking reads of `~/.m2/settings.xml` and `settings-security.xml`. |
+| 13 | Light and dark theme toggle that remembers the choice. |
+| 14 | The "How strict" choice is shown as pros and cons cards. |
+| 15 | **Merge into an existing settings file** (`src/generator/merge.ts`). Accepts a whole `settings.json` or just its `permissions` value. Only `permissions`, `hooks` and `sandbox` are touched; every other key, including `env`, is copied through unchanged and in order. Rules already present are skipped, and rules moved from ask to block are taken out of `ask`. |
+| 16 | The "Merge into it" pill is tinted with the accent color. |
+| 17 | The cloud credentials note explains that its rules are written whatever tools are picked, because they protect files in the home folder. |
+| 18 | README "Context cost" section: `CLAUDE.md` and `.claude/rules/` files use context, permission rules and the hook do not. |
+
+The tool picker shipped without logos and without custom tools. Both were in the original idea; see the next steps.
 
 ## Run it
 
@@ -34,7 +53,7 @@ npm run typecheck
 npm run dev
 ```
 
-- `npm test` runs 2,016 tests in about 15 seconds.
+- `npm test` runs 1,089 tests in 9 files in a few seconds. An earlier version of this file said 2,016; that was wrong. The count has only grown (1,039 after pull request 11, 1,076 after 12, 1,089 after 15).
 - `npm run live-test rules <empty-folder>` (or `hook`, and optionally `readers` as a third word) runs real tool calls through the signed-in `claude` CLI and compares them with the simulator. It costs roughly a dollar of usage per run and takes a few minutes.
 - `npm run dev` serves the page. `.claude/launch.json` starts it on port 5391, because 5173 was taken by another project on the machine this was built on.
 - `npm run build` typechecks and writes `dist/` (ignored by git).
@@ -46,12 +65,14 @@ npm run dev
 | :- | :- |
 | `src/catalog/schema.ts` | Types for a catalog item: rules, hook checks, gaps, test cases. Start here. |
 | `src/catalog/inputs.ts` | The nine shared user inputs. |
-| `src/catalog/{secrets,local,remote,infra}.ts` | The 30 items, with 286 test cases between them. |
-| `src/generator/generate.ts` | Selections + inputs + environment -> `permissions.deny/ask`, `hooks`, `sandbox`, hook rules file, per-item notes, warnings. |
+| `src/catalog/{secrets,local,remote,infra}.ts` | The 31 items, with 337 test cases between them. |
+| `src/catalog/tools.ts` | The tool picker's list, and the helpers that decide whether a tagged rule or an item applies to the picked tools. |
+| `src/generator/generate.ts` | Selections + inputs + environment (including picked tools) -> `permissions.deny/ask`, `hooks`, `sandbox`, hook rules file, per-item notes, warnings. |
+| `src/generator/merge.ts` | Merges generated settings into a pasted `settings.json`. |
 | `src/generator/paths.ts` | Converts pasted Windows, POSIX, home and project paths into rule prefixes. |
-| `src/hook/deny-guard.cjs` | The hook the user installs. Plain CommonJS, no dependencies, about 900 lines. Shipped as-is. |
+| `src/hook/deny-guard.cjs` | The hook the user installs. Plain CommonJS, no dependencies, about 940 lines. Shipped as-is. |
 | `src/simulator/simulate.ts` | Predicts what rules and hook do to one tool call. Backs the "Try it" box and the catalog proof tests. |
-| `src/app/` | The page: `main.ts` (DOM), `state.ts` (state, presets, storage), `style.css`. |
+| `src/app/` | The page: `main.ts` (DOM), `state.ts` (state, presets, storage), `style.css` (both themes). |
 | `scripts/live-test.ts` | The live test against the real CLI. Not part of `npm test`. |
 | `refrences/` | The two source transcripts. The folder name is misspelled; see questions below. |
 
@@ -79,20 +100,21 @@ This is what backs the "only the hook stops these" examples on the page. It has 
 
 1. **Live test on macOS or Linux.** The live test has only been run on native Windows (v2.1.215 and v2.1.325), where the sandbox cannot be tested at all. Only the Essentials preset was exercised; the infrastructure items and the larger presets were not.
 2. **The file-command lists are sampled.** The live probe covered about twenty commands. Others that read or write a file may or may not be held to path rules.
-3. **Copy and download buttons** on the page were never clicked in testing.
+3. **Copy and download buttons** on the page were never clicked in testing. Neither has the merge output been pasted back into a real Claude Code session.
 4. **The optional `autoMode` fragment** from `PLAN.md` section 6 is not generated. Findings on how it must work are in section 9: it is ignored in project settings, and every list must include `"$defaults"`.
 5. **Shareable links.** State lives in `localStorage` only.
+6. **Tool picker extras.** No logos, and no way to add a tool that is not on the list.
 
 ## Known issues and risks
 
 - **One unexplained test stall.** The first full run after the hook was written hung and was stopped. It has not recurred in dozens of runs since. Stray worker processes are the likely cause, but an intermittent hang in the hook's tokenizer is not ruled out. A hook that hangs would stall every shell command, so if it ever recurs, treat it as serious.
 - **The hook's tokenizer is hand-written.** It is not a full shell parser. Unusual quoting could be misread in either direction.
 - **`"onFailure": "block"`** is written on the hook by default and needs Claude Code v2.1.295 or later. v2.1.215 accepts a settings file containing the key and runs the hook; it presumably just ignores the key, so a crashed hook there lets the call through.
-- **Rule count.** The "Production access" preset produced 218 block rules and 424 ask rules on Windows. The Essentials preset (about 240 rules) loaded fine in the live run; the larger presets were not tried.
+- **Rule count.** Measured 2026-11-15 on Windows with Bash and PowerShell and no tool filter: Essentials 176 block and 79 ask, Team repo 250 and 115, Production access 250 and 545, Everything 287 and 565. Picking tools cuts the infrastructure numbers sharply. Essentials loaded fine in the live run; the larger presets were not tried. Rule count does not cost context (the model never sees permission rules), but load time and startup warnings with 850 rules are untested.
 - **The list of file commands Claude Code holds to Read rules is sampled, not known.** `FILE_READERS` and `PS_FILE_READERS` in `simulate.ts` hold the documented ones plus those seen refused live. Anything not on the list is shown as "needs the hook", which errs on the safe side.
 - **Cloud CLI prompts.** With the hook on, every `aws ... delete-*` and every `gcloud` or `az` `delete` asks, including harmless ones. The rules alone list only high-impact services.
 - **The hook is evaluated in the browser with `new Function`** on its bundled source text. This will break under a strict content security policy.
-- **Docs may have moved.** Everything about Claude Code behaviour was read from `code.claude.com/docs` on 2026-11-13. Re-check before trusting a detail.
+- **Docs may have moved.** Everything about Claude Code behaviour was read from `code.claude.com/docs` on 2026-11-13. The memory and permissions pages were re-read on 2026-11-15 for the README's context note. Re-check before trusting a detail.
 
 ## Gotchas that cost time
 
@@ -123,13 +145,16 @@ These were raised during the build and are still open. Each one has a default th
 9. **Is linking to destructive_command_guard from the page acceptable?** The output recommends it by name when three or more infrastructure items are selected. The owner asked for it to be referenced, but did not see this wording before it was written.
 10. **Should the infrastructure items default to "ask"?** All seven do, and none is in the Essentials preset. This was a judgment call, not a request.
 11. ~~**Is CI wanted?**~~ Answered: yes. Added in `.github/workflows/ci.yml`.
-12. **Design.** The brief said not to worry about it. The page is unstyled beyond basics. When that changes is the owner's call.
+12. ~~**Design.**~~ Answered: the owner asked for it. The page was redesigned in pull request 9 and gained a theme toggle in 13. The unmerged `font-picker` branch suggests font choices are still open.
 
 ## Decisions the owner did make
 
 - Hook script language: Node.
 - The page offers "Rules only" or "Rules plus hook", defaults to rules only, labels the hook as for advanced users, and explains the difference.
 - Work goes on a branch and through a pull request; the owner merges.
+- A tool picker on the page, so people get rules only for the tools they use.
+- Pasted settings files are merged into, not replaced.
+- No context meter on the page. The generated rules always add zero context, so a meter would never move. Decided 2026-11-15.
 
 ## Suggested next steps, in order
 
@@ -137,6 +162,7 @@ These were raised during the build and are still open. Each one has a default th
 2. Run it with the larger presets, which include the infrastructure items.
 3. Get answers to the questions above, starting with 1, 2 and 3.
 4. ~~Add CI and a short README.~~ Done.
-5. Click through copy and download on the page.
-6. Then the optional work: `autoMode` fragment, shareable links, design.
-7. **Tool picker (idea, not started).** On the page, let the user pick the tools they use (GitHub, npm, Docker, AWS, Terraform, Postgres, and so on), each shown with its logo. The selected tools generate rules automatically from the catalog. Users can also add their own tools that are not in the list, with their own commands and paths.
+5. Click through copy, download and merge on the page, and load a merged file in Claude Code.
+6. Decide what to do with the `font-picker` branch.
+7. Then the optional work: `autoMode` fragment, shareable links.
+8. **Tool picker extras.** The picker shipped in pull request 11. Still open from the original idea: a logo beside each tool, and letting people add their own tools with their own commands and paths.
